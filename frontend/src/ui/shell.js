@@ -142,6 +142,8 @@ export class Shell {
       if (keys.includes('keybindings')) this.menu.render();
     });
     app.on('show-settings', (section) => this.showSettings(section));
+    // Android: home-screen widgets show recent files and pinned notes
+    if (app.backend.android?.refreshWidgets) app.on('saved', debounce(() => app.backend.android.refreshWidgets(), 3000));
 
     const recheck = debounce(() => { app.checkDisk(); this.tree.refreshAll(); }, 250);
     addEventListener('focus', recheck);
@@ -311,6 +313,7 @@ export class Shell {
 
   async openPaths(paths) {
     for (const p of paths) {
+      if (p === 'mnemostxt:new') { this.app.newDoc(); continue; } // the widget's + button
       const st = await this.app.backend.stat(p).catch(() => null);
       if (st?.dir) { this.app.addRoot(p); this.toggleSidebar(true); } else if (st) await this.app.open(p);
       else toast(`Not found: ${p}`, { error: true });

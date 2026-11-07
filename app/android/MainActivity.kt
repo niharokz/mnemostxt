@@ -9,6 +9,8 @@ package ar.nih.mnemostxt
 //  - Gives the web page a small bridge, window.MnemostxtAndroid
 //    (frontend/src/backend/android.js): the system folder picker, the lock,
 //    the permission screens, and the settings ShareActivity needs.
+//  - Opens the file a widget was tapped on (Widgets.kt): the request waits in a
+//    queue until the page takes it (MnemostxtAndroid.takeOpenRequests).
 //  - Locks with the phone's own lock (fingerprint, face, PIN, pattern) when
 //    Preferences → This device → Lock is on: at start, and after the app was
 //    in the background for the chosen number of minutes. mnemostxt stores no
@@ -65,7 +67,24 @@ class MainActivity : TauriActivity() {
       WindowInsetsCompat.CONSUMED
     }
     if (lockEnabled()) lock()
+    queueOpen(intent)
     askForFileAccess()
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    queueOpen(intent)
+  }
+
+  // ── files opened from a widget ────────────────────────────────────────────
+
+  private fun queueOpen(intent: Intent?) {
+    if (intent?.action != Widgets.ACTION_OPEN) return
+    val path = intent.getStringExtra(Widgets.EXTRA_PATH) ?: return
+    synchronized(openQueue) { openQueue.add(path) }
+    intent.removeExtra(Widgets.EXTRA_PATH) // not again on rotation
+    runOnUiThread { webView?.evaluateJavascript("window.__mnemostxtOpenPending && window.__mnemostxtOpenPending()", null) }
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -79,6 +98,7 @@ class MainActivity : TauriActivity() {
 
   override fun onStop() {
     super.onStop()
+    Widgets.updateAll(this) // the widgets show what changed while the app was open
     if (!authenticating && !skipNextLock && lockCover == null) backgroundSince = SystemClock.elapsedRealtime()
   }
 
@@ -223,6 +243,17 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun pickFolder(callId: Int) = runOnUiThread { launchFolderPicker(callId) }
 
+    /** Files (or "mnemostxt:new") a widget asked to open, as a JSON array; empties the queue. */
+    @JavascriptInterface
+    fun takeOpenRequests(): String = synchronized(openQueue) {
+      val out = org.json.JSONArray(openQueue).toString()
+      openQueue.clear()
+      out
+    }
+
+    @JavascriptInterface
+    fun refreshWidgets() = Widgets.updateAll(this@MainActivity)
+
     /** Notes folder, inbox and lock settings, kept for ShareActivity and for locking before the page loads. */
     @JavascriptInterface
     fun configure(json: String) {
@@ -230,6 +261,7 @@ class MainActivity : TauriActivity() {
       prefs.edit()
         .putString("notesDir", o.optString("notesDir", "").ifBlank { null })
         .putString("inbox", o.optString("inbox", "inbox"))
+        .putString("appDir", o.optString("appDir", "logs/mnemostxt"))
         .putBoolean("lock", o.optBoolean("lock", false))
         .putInt("lockAfterMinutes", o.optInt("lockAfterMinutes", 1))
         .apply()
@@ -238,6 +270,7 @@ class MainActivity : TauriActivity() {
 
   companion object {
     const val PREFS = "mnemostxt"
+    private val openQueue = ArrayList<String>()
 
     /**
      * content://…/tree/primary%3Anotes → /storage/emulated/0/notes.

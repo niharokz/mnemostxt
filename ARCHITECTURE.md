@@ -133,7 +133,16 @@ bridge, icons, release signing. It is not committed.
   background. A cover hides the app until it succeeds. mnemostxt stores no PIN.
 - **Share**: `ShareActivity` writes into `<notes>/<androidInbox>` (text as
   `<date>_<time>.md`, files under their names) using the folder the app last
-  told it (`configure`), and closes.
+  told it (`configure`), and closes. `Inbox.kt` holds that logic for everyone.
+- **Widgets** (`Widgets.kt`, `WidgetConfigActivity.kt`, `CaptureActivity.kt`,
+  `res/`): six providers (Recent files 2×2/3×2/4×2, Pinned note 2×2/4×2, Quick
+  capture 4×1) drawn with RemoteViews; the lists come from `WidgetListService`
+  reading the notes folder directly. Each widget's theme ("like the app" reads
+  `settings.json`), opacity, text size, font, folder or note live in
+  SharedPreferences `mnemostxt_widgets`. A tap opens `MainActivity`
+  (`singleTask`) with the path; it waits in a queue until the page takes it
+  (`takeOpenRequests`). Widgets redraw when you leave the app, after a save
+  (debounced), a share or a capture, every 30 minutes, and with ⟳.
 
 ## Web (`server/`)
 

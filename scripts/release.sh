@@ -94,7 +94,11 @@ ok "GitLab: $name"
 branch=$(git rev-parse --abbrev-ref HEAD)
 [ "$branch" = "$MAIN_BRANCH" ] || fail "on branch '$branch' — switch to $MAIN_BRANCH"
 [ -z "$(git status --porcelain)" ] || fail "uncommitted changes — commit or stash them (git status)"
-git fetch -q origin "$MAIN_BRANCH" --tags || fail "git fetch failed"
+# local tags follow GitLab's (a re-pushed tag would otherwise stop the fetch)
+if ! out=$(git fetch origin "$MAIN_BRANCH" --tags --force 2>&1); then
+  printf '%s\n' "$out" | sed 's/^/    /'
+  fail "git fetch failed (message above)"
+fi
 behind=$(git rev-list --count "HEAD..origin/$MAIN_BRANCH")
 [ "$behind" -eq 0 ] || fail "$behind commit(s) behind origin/$MAIN_BRANCH — git pull first"
 ahead=$(git rev-list --count "origin/$MAIN_BRANCH..HEAD")

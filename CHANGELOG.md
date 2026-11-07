@@ -9,6 +9,48 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Added
+
+- **Android home-screen widgets**: long-press the home screen → Widgets → mnemostxt.
+  - *Recent files* (2×2, 3×2, 4×2): the newest files of the notes folder or a
+    folder you choose; tap one to open it, **+** for a new tab, ⟳ to refresh.
+  - *Pinned note* (2×2, 4×2): one note's text, scrollable; tap to open it.
+  - *Quick capture* (4×1): tap, type, Save — the note lands in
+    `inbox/<date>_<time>.md`, like "Share to mnemostxt".
+- Each widget has its own settings (when it is added; later by long-press →
+  settings or a tap on its title): theme (like the app, like the phone, or any
+  built-in theme), background opacity, text size, font (sans or monospace),
+  the folder or note, and whether its text hides while the app lock is on
+  (on by default for Pinned note).
+- Widgets redraw when you leave the app, after saving, after a share or a
+  capture, every 30 minutes, and with ⟳.
+
+### Changed
+
+- Android: a widget tap opens the file in the running app instead of a new
+  copy (the app's activity is now single-task).
+
+### Added
+
+- **Android home-screen widgets**: long-press the home screen → Widgets → mnemostxt.
+  - *Recent files* (2×2, 3×2, 4×2): the newest files of the notes folder or a
+    folder you choose; tap one to open it, **+** for a new tab, ⟳ to refresh.
+  - *Pinned note* (2×2, 4×2): one note's text, scrollable; tap to open it.
+  - *Quick capture* (4×1): tap, type, Save — the note lands in
+    `inbox/<date>_<time>.md`, like "Share to mnemostxt".
+- Each widget has its own settings (when it is added; later by long-press →
+  settings or a tap on its title): theme (like the app, like the phone, or any
+  built-in theme), background opacity, text size, font (sans or monospace),
+  the folder or note, and whether its text hides while the app lock is on
+  (on by default for Pinned note).
+- Widgets redraw when you leave the app, after saving, after a share or a
+  capture, every 30 minutes, and with ⟳.
+
+### Changed
+
+- Android: a widget tap opens the file in the running app instead of a new
+  copy (the app's activity is now single-task).
+
 ## [0.0.2] - 2026-11-07
 
 ### Added

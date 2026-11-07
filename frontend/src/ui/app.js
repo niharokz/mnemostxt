@@ -90,7 +90,7 @@ export class App {
     if (be.setTray && has('keepInTray')) be.setTray(s.keepInTray).catch((e) => { if (s.keepInTray) toast(`Tray: ${e.message}`, { error: true, ms: 6000 }); });
     if (be.android && has('androidInbox', 'androidLock', 'androidLockAfterMinutes')) {
       try {
-        be.android.configure({ notesDir: be.notesRoot, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes });
+        be.android.configure({ notesDir: be.notesRoot, appDir: be.appDir, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes });
       } catch (e) { console.warn('android configure', e); }
     }
   }

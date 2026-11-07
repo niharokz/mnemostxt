@@ -46,7 +46,9 @@
 - **Desktop**: optional tray (files open instantly), see-through background
   for picom and other compositors.
 - **Android**: system folder picker, fingerprint/face/screen-lock lock,
-  "Share to mnemostxt" into your inbox folder.
+  "Share to mnemostxt" into your inbox folder, and home-screen widgets:
+  Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2), Quick capture (4×1),
+  each with its own theme, opacity, text size and font.
 
 ## Web app
 

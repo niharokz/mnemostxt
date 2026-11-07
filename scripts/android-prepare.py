@@ -10,6 +10,9 @@ git. This script creates it when missing and applies mnemostxt's changes:
      ShareActivity.kt
   2a. androidx.biometric for the lock (fingerprint, face or screen lock)
   2c. a ProGuard rule keeping the JavaScript bridge in release builds
+  2d. the home-screen widgets (0.0.3): Kotlin in app/android/*.kt, resources
+      in app/android/res/ (layouts, widget infos, background), and their
+      receivers, list service, settings and capture activities in the manifest
   2b. the Gradle task that calls back into the Tauri CLI: point it at the real
       CLI file (started as `node <file>`, Tauri records just "tauri")
   3. the launcher icons from app/icons/android
@@ -113,12 +116,86 @@ def share_target():
 
 
 def activity():
+    """Every app/android/*.kt next to the generated MainActivity.kt (which ours replaces)."""
     found = list((GEN / "app" / "src" / "main").rglob("MainActivity.kt"))
     if not found:
         die("MainActivity.kt not found in the generated project")
-    shutil.copyfile(APP / "android" / "MainActivity.kt", found[0])
-    shutil.copyfile(APP / "android" / "ShareActivity.kt", found[0].parent / "ShareActivity.kt")
-    print(f"android-prepare: {found[0].relative_to(ROOT)} replaced, ShareActivity.kt added")
+    names = []
+    for kt in sorted((APP / "android").glob("*.kt")):
+        shutil.copyfile(kt, found[0].parent / kt.name)
+        names.append(kt.name)
+    print(f"android-prepare: {', '.join(names)} copied to {found[0].parent.relative_to(ROOT)}")
+
+
+def resources():
+    """app/android/res/** (widget layouts, infos, drawables) into the generated res/."""
+    src = APP / "android" / "res"
+    res = GEN / "app" / "src" / "main" / "res"
+    n = 0
+    for f in src.rglob("*"):
+        if f.is_file():
+            dest = res / f.relative_to(src)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(f, dest)
+            n += 1
+    print(f"android-prepare: {n} widget resources copied")
+
+
+WIDGETS_MARK = "mnemostxt-widgets-v1"
+WIDGET_RECEIVERS = [
+    ("RecentWidget2x2", "Recent files (2×2)", "recent_2x2"),
+    ("RecentWidget3x2", "Recent files (3×2)", "recent_3x2"),
+    ("RecentWidget4x2", "Recent files (4×2)", "recent_4x2"),
+    ("PinnedWidget2x2", "Pinned note (2×2)", "pinned_2x2"),
+    ("PinnedWidget4x2", "Pinned note (4×2)", "pinned_4x2"),
+    ("CaptureWidget4x1", "Quick capture (4×1)", "capture_4x1"),
+]
+
+
+def widgets():
+    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
+    s = p.read_text()
+    changed = False
+    # widget taps reach the running app (onNewIntent) instead of a second copy
+    if not re.search(r'<activity\b[^>]*android:name="\.MainActivity"[^>]*android:launchMode=', s, flags=re.S):
+        s, n = re.subn(r'(<activity\b[^>]*android:name="\.MainActivity")', r'\1 android:launchMode="singleTask"', s, count=1)
+        changed = changed or bool(n)
+    if WIDGETS_MARK not in s:
+        parts = [f"\n        <!-- {WIDGETS_MARK}: home-screen widgets (app/android/Widgets.kt) -->"]
+        for cls, label, xml in WIDGET_RECEIVERS:
+            parts.append(f'''        <receiver android:name=".{cls}" android:exported="false" android:label="{label}">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/mnemostxt_widget_{xml}" />
+        </receiver>''')
+        parts.append('''        <service android:name=".WidgetListService" android:exported="false" android:permission="android.permission.BIND_REMOTEVIEWS" />
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:label="Widget settings"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".CaptureActivity"
+            android:exported="false"
+            android:label="Quick capture"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Material.Dialog.NoActionBar"
+            android:windowSoftInputMode="stateVisible|adjustResize" />''')
+        block = "\n".join(parts)
+        s, n = re.subn(r"(\n\s*</application>)", lambda m: block + m.group(1), s, count=1)
+        if not n:
+            die(f"no </application> in {p}")
+        changed = True
+    if changed:
+        p.write_text(s)
+        print("android-prepare: widgets added to the manifest")
 
 
 PROGUARD_MARK = "mnemostxt-bridge-v1"
@@ -255,7 +332,9 @@ if __name__ == "__main__":
     init()
     manifest()
     share_target()
+    widgets()
     activity()
+    resources()
     dependencies()
     proguard()
     build_task()

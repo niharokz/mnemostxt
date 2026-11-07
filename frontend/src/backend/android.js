@@ -1,7 +1,8 @@
 // The Android side of the app (app/android/MainActivity.kt) adds a small
 // JavaScript interface, window.MnemostxtAndroid, for what a web view cannot do
 // alone: the system folder picker, the phone's lock (fingerprint, face, screen
-// lock), the storage permission screen and the settings the share target needs.
+// lock), the storage permission screen, the settings the share target and the
+// widgets need, and the files a widget asks to open.
 // Answers that take a while (the picker) come back through window.__mnemostxtCb.
 
 export function androidBridge() {
@@ -26,5 +27,9 @@ export function androidBridge() {
     configure: (cfg) => n.configure(JSON.stringify(cfg)),
     // the system picker, answered with a real path (/storage/emulated/0/notes) or null
     pickFolder: () => later((id) => n.pickFolder(id)).then((v) => v || null),
+    // files a home-screen widget asked to open ("mnemostxt:new" = a new tab)
+    takeOpenRequests: () => { try { return JSON.parse(n.takeOpenRequests() || '[]'); } catch { return []; } },
+    onOpenRequest: (fn) => { window.__mnemostxtOpenPending = fn; },
+    refreshWidgets: () => n.refreshWidgets?.(),
   };
 }

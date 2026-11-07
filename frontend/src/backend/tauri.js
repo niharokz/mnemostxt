@@ -125,6 +125,15 @@ export async function createTauriBackend() {
       if (model) await be.setDeviceConfig({ deviceName: model }).catch(() => {});
     }
     if (be.android?.pickFolder) be.pickFolder = () => be.android.pickFolder();
+    if (be.android?.takeOpenRequests) {
+      // a widget tap: opened at start, or handed over while the app runs
+      be.startupFiles = be.android.takeOpenRequests();
+      be.onOpenFiles = (fn) => {
+        const drain = () => { const list = be.android.takeOpenRequests(); if (list.length) fn(list); };
+        be.android.onOpenRequest(drain);
+        drain();
+      };
+    }
   }
   return be;
 }

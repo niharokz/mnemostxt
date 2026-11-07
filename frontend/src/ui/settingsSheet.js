@@ -222,7 +222,8 @@ export function showSettings(app, ui, first = 'appearance') {
           if (on && !(await a.lockAvailable())) { s.set({ androidLock: false }); alert('No screen lock', 'Set a screen lock (PIN, pattern or password) in the phone settings first.'); }
         }),
         row('Lock after (minutes in background)', num('androidLockAfterMinutes', 0, 1440), '0 = every time you come back'),
-        row('App permissions', h('button', { type: 'button', onclick: () => a.openAppSettings() }, 'Open app info')));
+        row('App permissions', h('button', { type: 'button', onclick: () => a.openAppSettings() }, 'Open app info')),
+        h('p.muted', {}, 'Widgets: long-press the home screen → Widgets → mnemostxt. Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2) and Quick capture (4×1); long-press a widget (or tap its title) for its theme, opacity, text size, font and folder or note.'));
     }
     out.push(h('p.muted.set-foot', {}, `Settings: ${be.notesName}/${appDirOf(be)}/settings.json · mnemostxt ${be.version}`));
     return out;
