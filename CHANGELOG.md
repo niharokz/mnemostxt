@@ -9,6 +9,8 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+## [0.0.3] - 2026-11-07
+
 ### Added
 
 - **Android home-screen widgets**: long-press the home screen → Widgets → mnemostxt.
@@ -159,6 +161,7 @@ First release. mnemostxt replaces mnemos.
 - Collapsible menu bar (Alt opens it), nss dark and light themes.
 - Web: sign-in with rate limiting and bans, home page with download links.
 
-[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.2...main
+[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.3...main
+[0.0.3]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.2...v0.0.3
 [0.0.2]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.1...v0.0.2
 [0.0.1]: https://gitlab.com/niharokz/mnemostxt/-/releases/v0.0.1
