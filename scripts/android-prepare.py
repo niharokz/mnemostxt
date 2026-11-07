@@ -156,10 +156,18 @@ def widgets():
     p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
     s = p.read_text()
     changed = False
-    # widget taps reach the running app (onNewIntent) instead of a second copy
-    if not re.search(r'<activity\b[^>]*android:name="\.MainActivity"[^>]*android:launchMode=', s, flags=re.S):
-        s, n = re.subn(r'(<activity\b[^>]*android:name="\.MainActivity")', r'\1 android:launchMode="singleTask"', s, count=1)
-        changed = changed or bool(n)
+    # widget taps reach the running app (onNewIntent) instead of a second copy:
+    # exactly one launchMode="singleTask" on MainActivity, wherever Tauri put its
+    # own (0.0.3's first build added a duplicate, which is invalid XML)
+    def single_task(m):
+        tag = m.group(0)
+        if 'android:name=".MainActivity"' not in tag:
+            return tag
+        bare = re.sub(r'\s+android:launchMode="[^"]*"', "", tag)
+        return re.sub(r"^<activity\b", '<activity android:launchMode="singleTask"', bare)
+    s2 = re.sub(r"<activity\b[^>]*>", single_task, s, flags=re.S)
+    changed = s2 != s
+    s = s2
     if WIDGETS_MARK not in s:
         parts = [f"\n        <!-- {WIDGETS_MARK}: home-screen widgets (app/android/Widgets.kt) -->"]
         for cls, label, xml in WIDGET_RECEIVERS:
@@ -196,6 +204,16 @@ def widgets():
     if changed:
         p.write_text(s)
         print("android-prepare: widgets added to the manifest")
+
+
+def check_manifest():
+    """Fails here, with the reason, rather than deep inside Gradle."""
+    import xml.dom.minidom
+    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
+    try:
+        xml.dom.minidom.parse(str(p))
+    except Exception as e:  # noqa: BLE001 - any parse error is fatal
+        die(f"{p.relative_to(ROOT)} is not valid XML: {e}")
 
 
 PROGUARD_MARK = "mnemostxt-bridge-v1"
@@ -333,6 +351,7 @@ if __name__ == "__main__":
     manifest()
     share_target()
     widgets()
+    check_manifest()
     activity()
     resources()
     dependencies()
