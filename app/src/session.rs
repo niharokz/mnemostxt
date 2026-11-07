@@ -1,16 +1,24 @@
-//! Hot exit, like VS Code: the open tabs (session.json) and a backup of every
-//! unsaved edit (backups/<id>.txt) live in the app's own data folder, so
-//! closing the window never loses work and the next start restores it.
-//! Also the bootstrap file holding the notes folder path.
+//! The bootstrap file (this device only): the notes folder path, the app folder
+//! inside it and this device's name.
+//!
+//! Plus 0.0.1's hot-exit storage (session.json and backups/<id>.txt in the
+//! app's data folder). Since 0.0.2 the frontend keeps both in the app folder of
+//! the notes folder (frontend/src/core/store.js); these commands remain only so
+//! the first 0.0.2 start can take over an old session, and as the fallback
+//! before a notes folder is chosen.
 
 use crate::util::{err, io_err, Res};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct Bootstrap {
     pub notes_dir: Option<String>,
+    #[serde(default)]
+    pub app_dir: Option<String>,
+    #[serde(default)]
+    pub device_name: Option<String>,
 }
 
 pub fn load_bootstrap(config_dir: &Path) -> Bootstrap {
@@ -94,8 +102,12 @@ mod tests {
         backup_delete(d.path(), "abc123").unwrap();
         assert!(backup_read(d.path(), "abc123").unwrap().is_none());
         assert!(backup_write(d.path(), "../x", "").is_err());
-        let b = Bootstrap { notes_dir: Some("/n".into()) };
+        let b = Bootstrap { notes_dir: Some("/n".into()), app_dir: None, device_name: Some("lap".into()) };
         save_bootstrap(d.path(), &b).unwrap();
         assert_eq!(load_bootstrap(d.path()).notes_dir.as_deref(), Some("/n"));
+        assert_eq!(load_bootstrap(d.path()).device_name.as_deref(), Some("lap"));
+        // a 0.0.1 file (notes_dir only) still loads
+        fs::write(d.path().join("bootstrap.json"), r#"{"notes_dir":"/old"}"#).unwrap();
+        assert_eq!(load_bootstrap(d.path()).notes_dir.as_deref(), Some("/old"));
     }
 }

@@ -1,5 +1,5 @@
-// Editor look: nss tokens through CSS variables, so dark/light switch without
-// rebuilding the editor. Syntax colours are --syn-* in styles/app.css.
+// Editor look: theme colours through CSS variables, so switching themes never
+// rebuilds the editor. The variables are set by core/themes.js.
 import { EditorView } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
@@ -37,20 +37,32 @@ const base = EditorView.theme({
   '.cm-trailingSpace': { backgroundColor: 'color-mix(in srgb, var(--nss-bad) 25%, transparent)' },
 });
 
+// Each token kind has its own colour variable, so themes (core/themes.js)
+// can tell keywords from control flow, types from classes, and so on.
 const highlight = HighlightStyle.define([
-  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: 'var(--syn-comment)', fontStyle: 'italic' },
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier], color: 'var(--syn-keyword)' },
-  { tag: [t.string, t.special(t.string), t.character, t.docString], color: 'var(--syn-string)' },
-  { tag: [t.regexp, t.escape], color: 'var(--syn-regexp)' },
-  { tag: [t.number, t.integer, t.float, t.bool, t.null, t.atom, t.unit], color: 'var(--syn-number)' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: 'var(--syn-function)' },
-  { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: 'var(--syn-type)' },
-  { tag: [t.definition(t.variableName), t.labelName], color: 'var(--syn-def)' },
-  { tag: [t.propertyName, t.attributeName], color: 'var(--syn-property)' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--syn-comment)', fontStyle: 'italic' },
+  { tag: t.docComment, color: 'var(--syn-comment)', fontStyle: 'italic' },
+  { tag: [t.controlKeyword, t.operatorKeyword], color: 'var(--syn-control)' },
+  { tag: [t.keyword, t.moduleKeyword, t.definitionKeyword, t.modifier], color: 'var(--syn-keyword)' },
+  { tag: [t.string, t.special(t.string), t.character, t.docString, t.attributeValue], color: 'var(--syn-string)' },
+  { tag: t.escape, color: 'var(--syn-escape)' },
+  { tag: t.regexp, color: 'var(--syn-regexp)' },
+  { tag: [t.number, t.integer, t.float, t.unit], color: 'var(--syn-number)' },
+  { tag: [t.bool, t.null, t.atom, t.constant(t.variableName), t.constant(t.name)], color: 'var(--syn-constant)' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.function(t.definition(t.variableName))], color: 'var(--syn-function)' },
+  { tag: [t.standard(t.variableName), t.standard(t.name), t.special(t.variableName), t.macroName], color: 'var(--syn-builtin)' },
+  { tag: [t.typeName, t.standard(t.typeName)], color: 'var(--syn-type)' },
+  { tag: [t.className, t.definition(t.className)], color: 'var(--syn-class)' },
+  { tag: t.namespace, color: 'var(--syn-namespace)' },
+  { tag: [t.definition(t.variableName), t.definition(t.propertyName)], color: 'var(--syn-def)' },
+  { tag: t.labelName, color: 'var(--syn-labels)' },
+  { tag: t.propertyName, color: 'var(--syn-property)' },
+  { tag: t.attributeName, color: 'var(--syn-attribute)' },
   { tag: [t.variableName, t.self], color: 'var(--syn-variable)' },
   { tag: [t.tagName, t.angleBracket], color: 'var(--syn-tag)' },
-  { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: 'var(--syn-punct)' },
-  { tag: [t.meta, t.processingInstruction, t.annotation], color: 'var(--syn-meta)' },
+  { tag: [t.operator, t.arithmeticOperator, t.logicOperator, t.bitwiseOperator, t.compareOperator, t.updateOperator, t.definitionOperator, t.typeOperator, t.controlOperator, t.derefOperator], color: 'var(--syn-operator)' },
+  { tag: [t.punctuation, t.separator, t.bracket, t.paren, t.squareBracket, t.brace], color: 'var(--syn-punct)' },
+  { tag: [t.meta, t.processingInstruction, t.annotation, t.documentMeta], color: 'var(--syn-meta)' },
   { tag: t.invalid, color: 'var(--nss-bad)' },
   { tag: t.heading, color: 'var(--syn-heading)', fontWeight: '700' },
   { tag: [t.heading1], color: 'var(--syn-heading)', fontWeight: '700', fontSize: '1.15em' },
@@ -62,9 +74,9 @@ const highlight = HighlightStyle.define([
   { tag: t.monospace, color: 'var(--syn-string)' },
   { tag: [t.quote], color: 'var(--syn-comment)' },
   { tag: [t.list, t.contentSeparator], color: 'var(--syn-keyword)' },
-  { tag: t.inserted, color: 'var(--nss-ok)' },
-  { tag: t.deleted, color: 'var(--nss-bad)' },
-  { tag: t.changed, color: 'var(--nss-warn)' },
+  { tag: t.inserted, color: 'var(--syn-inserted)' },
+  { tag: t.deleted, color: 'var(--syn-deleted)' },
+  { tag: t.changed, color: 'var(--syn-changed)' },
 ]);
 
 export const editorTheme = [base, syntaxHighlighting(highlight, { fallback: true })];

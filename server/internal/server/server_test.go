@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,14 +20,19 @@ import (
 func setup(t *testing.T) (*httptest.Server, *http.Client) {
 	t.Helper()
 	cfg, err := config.Load(func(k string) string {
-		return map[string]string{"MNEMOSTXT_USER": "me", "MNEMOSTXT_PASSWORD": "pw", "MNEMOSTXT_SECRET": "s", "MNEMOSTXT_BAN_AFTER": "3"}[k]
+		return map[string]string{"MNEMOSTXT_USER": "me", "MNEMOSTXT_PASSWORD": "pw", "MNEMOSTXT_SECRET": "s", "MNEMOSTXT_BAN_AFTER": "3",
+			"MNEMOSTXT_DEMO_USER": "demo", "MNEMOSTXT_DEMO_PASSWORD": "demo"}[k]
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	v, _ := vault.New(t.TempDir(), 1<<20, cfg.Hidden)
-	a := auth.New(auth.Options{User: cfg.User, Password: cfg.Password, Secret: cfg.Secret, BanAfter: cfg.BanAfter, BanFor: time.Hour, StateDir: t.TempDir()})
-	ts := httptest.NewServer(New(cfg, a, v, "test"))
+	demoDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(demoDir, "welcome.md"), []byte("demo note"), 0o644)
+	d, _ := vault.New(demoDir, 1<<20, cfg.Hidden)
+	d.ReadOnly = true
+	a := auth.New(auth.Options{User: cfg.User, Password: cfg.Password, DemoUser: cfg.DemoUser, DemoPassword: cfg.DemoPass, Secret: cfg.Secret, BanAfter: cfg.BanAfter, BanFor: time.Hour, StateDir: t.TempDir()})
+	ts := httptest.NewServer(New(cfg, a, v, d, "test"))
 	t.Cleanup(ts.Close)
 	jar, _ := cookiejar.New(nil)
 	return ts, &http.Client{Jar: jar}
@@ -111,5 +118,29 @@ func TestBan(t *testing.T) {
 	// 127.0.0.1 is private: not banned for long, but locked for the window
 	if code, _, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"me","password":"pw"}`, true); code != 429 {
 		t.Fatalf("locked out: %d", code)
+	}
+}
+
+func TestDemo(t *testing.T) {
+	ts, c := setup(t)
+	_, me, _ := do(t, c, "GET", ts.URL+"/api/me", "", false)
+	if !strings.Contains(me, `"demo":{"password":"demo","user":"demo"}`) {
+		t.Fatalf("sign-in card should offer the demo: %s", me)
+	}
+	if code, _, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"demo","password":"demo"}`, true); code != 200 {
+		t.Fatalf("demo login: %d", code)
+	}
+	_, me, _ = do(t, c, "GET", ts.URL+"/api/me", "", false)
+	if strings.Contains(me, `"password"`) {
+		t.Fatalf("credentials leak after sign-in: %s", me)
+	}
+	if _, body, _ := do(t, c, "GET", ts.URL+"/api/file?path=welcome.md", "", false); body != "demo note" {
+		t.Fatalf("demo reads its own folder: %q", body)
+	}
+	if code, _, _ := do(t, c, "PUT", ts.URL+"/api/file?path=a.md", "x", true); code != 403 {
+		t.Fatalf("demo wrote: %d", code)
+	}
+	if _, info, _ := do(t, c, "GET", ts.URL+"/api/info", "", false); !strings.Contains(info, `"read_only":true`) {
+		t.Fatalf("info: %s", info)
 	}
 }

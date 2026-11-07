@@ -7,7 +7,7 @@
 #     release  files into the package registry + a GitLab release with permanent links:
 #              …/-/releases/permalink/latest/downloads/mnemostxt.apk  (and .deb, -setup.exe)
 #
-# Release: write the CHANGELOG section, then  sh scripts/release.sh X.Y.Z
+# Release: changes under [Unreleased] in CHANGELOG.md, then  sh scripts/release.sh  (docs/RELEASING.md)
 # Runner setup: docs/RUNNER.md
 
 stages: [check, build, release]

@@ -12,6 +12,9 @@
     "core:window:allow-destroy",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-theme",
     "dialog:allow-open",
     "dialog:allow-save",
     "opener:allow-open-url"

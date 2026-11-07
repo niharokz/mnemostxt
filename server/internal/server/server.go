@@ -1,9 +1,12 @@
 // Package server wires the HTTP routes:
 //
-//	/            the home page (download links, sign in)
-//	/app/        the editor (frontend/dist, built into the binary)
+//	/            the About page (download links, sign in), like Natlas and Arthik
+//	/app/        the editor (frontend/dist, built into the binary) and its sign-in card
 //	/api/...     sign-in and the notes folder API (signed-in only)
 //	/health      liveness for the Docker health check
+//
+// The owner works on the notes folder; the demo account (if configured) on a
+// read-only copy of the sample notes in web/demo.
 package server
 
 import (
@@ -27,12 +30,14 @@ type Server struct {
 	cfg     *config.Config
 	auth    *auth.Auth
 	vault   *vault.Vault
+	demo    *vault.Vault // nil without a demo account
 	version string
 	mux     *http.ServeMux
 }
 
-func New(cfg *config.Config, a *auth.Auth, v *vault.Vault, version string) *Server {
-	s := &Server{cfg: cfg, auth: a, vault: v, version: version, mux: http.NewServeMux()}
+// New builds the server. demo may be nil.
+func New(cfg *config.Config, a *auth.Auth, v, demo *vault.Vault, version string) *Server {
+	s := &Server{cfg: cfg, auth: a, vault: v, demo: demo, version: version, mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -49,7 +54,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) routes() {
 	s.auth.Register(s.mux)
 	s.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok\n") })
-	s.mux.HandleFunc("GET /{$}", s.landing)
+	s.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		if !s.cfg.Landing {
+			http.Redirect(w, r, "/app/", http.StatusFound)
+			return
+		}
+		s.landing(w, r)
+	})
 	s.mux.HandleFunc("GET /icon.svg", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFileFS(w, r, web.Landing, "icon.svg")
@@ -70,12 +81,17 @@ func (s *Server) routes() {
 
 	rt := &httpx.Router{Mux: s.mux, Signed: s.auth.Signed}
 	q := func(r *http.Request) string { return r.URL.Query().Get("path") }
-	rt.Handle("GET /api/info", func(w http.ResponseWriter, _ *http.Request) error {
-		httpx.JSON(w, http.StatusOK, map[string]string{"version": s.version, "notes_name": s.cfg.NotesName})
+	rt.Handle("GET /api/info", func(w http.ResponseWriter, r *http.Request) error {
+		v := s.v(r)
+		name := s.cfg.NotesName
+		if v != s.vault {
+			name = "demo"
+		}
+		httpx.JSON(w, http.StatusOK, map[string]any{"version": s.version, "notes_name": name, "app_dir": v.App, "read_only": v.ReadOnly, "demo": v != s.vault})
 		return nil
 	})
 	rt.Handle("GET /api/list", func(w http.ResponseWriter, r *http.Request) error {
-		l, err := s.vault.List(q(r))
+		l, err := s.v(r).List(q(r))
 		if err != nil {
 			return err
 		}
@@ -83,7 +99,7 @@ func (s *Server) routes() {
 		return nil
 	})
 	rt.Handle("GET /api/stat", func(w http.ResponseWriter, r *http.Request) error {
-		st, err := s.vault.Stat(q(r))
+		st, err := s.v(r).Stat(q(r))
 		if err != nil {
 			return err
 		}
@@ -91,7 +107,7 @@ func (s *Server) routes() {
 		return nil
 	})
 	rt.Handle("GET /api/file", func(w http.ResponseWriter, r *http.Request) error {
-		b, mtime, err := s.vault.Read(q(r))
+		b, mtime, err := s.v(r).Read(q(r))
 		if err != nil {
 			return err
 		}
@@ -110,11 +126,11 @@ func (s *Server) routes() {
 			}
 			expect = n
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.vault.MaxSize+1))
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.v(r).MaxSize+1))
 		if err != nil {
 			return httpx.Errorf(http.StatusRequestEntityTooLarge, "TOO_LARGE", "file too large")
 		}
-		m, err := s.vault.Write(q(r), body, expect)
+		m, err := s.v(r).Write(q(r), body, expect)
 		if err != nil {
 			return err
 		}
@@ -122,14 +138,14 @@ func (s *Server) routes() {
 		return nil
 	})
 	rt.Handle("POST /api/mkdir", func(w http.ResponseWriter, r *http.Request) error {
-		if err := s.vault.MkdirAll(q(r)); err != nil {
+		if err := s.v(r).MkdirAll(q(r)); err != nil {
 			return err
 		}
 		httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return nil
 	})
 	rt.Handle("POST /api/create", func(w http.ResponseWriter, r *http.Request) error {
-		m, err := s.vault.Create(q(r))
+		m, err := s.v(r).Create(q(r))
 		if err != nil {
 			return err
 		}
@@ -141,14 +157,21 @@ func (s *Server) routes() {
 		if err := httpx.Decode(w, r, 16<<10, &in); err != nil {
 			return err
 		}
-		if err := s.vault.Rename(in.From, in.To); err != nil {
+		if err := s.v(r).Rename(in.From, in.To); err != nil {
+			return err
+		}
+		httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return nil
+	})
+	rt.Handle("DELETE /api/file", func(w http.ResponseWriter, r *http.Request) error {
+		if err := s.v(r).Remove(q(r)); err != nil {
 			return err
 		}
 		httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return nil
 	})
 	rt.Handle("POST /api/trash", func(w http.ResponseWriter, r *http.Request) error {
-		if err := s.vault.Trash(q(r)); err != nil {
+		if err := s.v(r).Trash(q(r)); err != nil {
 			return err
 		}
 		httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -159,7 +182,7 @@ func (s *Server) routes() {
 		if err != nil || days < 1 || days > 3650 {
 			return httpx.Errorf(http.StatusBadRequest, "INVALID", "days must be 1 to 3650")
 		}
-		res, err := s.vault.Purge(days, time.Now())
+		res, err := s.v(r).Purge(days, time.Now())
 		if err != nil {
 			return err
 		}
@@ -173,7 +196,7 @@ func (s *Server) routes() {
 		if max < 1 || max > 10000 {
 			max = 2000
 		}
-		hits, err := s.vault.Search(qs.Get("q"), qs.Get("regex") == "1", qs.Get("case") == "1", max)
+		hits, err := s.v(r).Search(qs.Get("q"), qs.Get("regex") == "1", qs.Get("case") == "1", max)
 		if err != nil {
 			return err
 		}
@@ -182,13 +205,21 @@ func (s *Server) routes() {
 	})
 }
 
+// v is the folder this request works on: the demo's copy for the demo account.
+func (s *Server) v(r *http.Request) *vault.Vault {
+	if s.demo != nil && s.auth.IsDemo(r) {
+		return s.demo
+	}
+	return s.vault
+}
+
 var landingTmpl = template.Must(template.ParseFS(web.Landing, "landing.html"))
 
 func (s *Server) landing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_ = landingTmpl.Execute(w, map[string]any{
-		"Version": s.version, "Signed": s.auth.Signed(r),
+		"Version": s.version, "Signed": s.auth.Signed(r), "Demo": s.demo != nil,
 		"APK": s.cfg.DownloadAPK, "EXE": s.cfg.DownloadEXE, "DEB": s.cfg.DownloadDEB, "Source": s.cfg.Source,
 	})
 }

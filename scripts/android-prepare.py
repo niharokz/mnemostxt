@@ -5,7 +5,11 @@ Tauri generates the Android project (`tauri android init`); it is not kept in
 git. This script creates it when missing and applies mnemostxt's changes:
 
   1. storage permissions (All files access) in AndroidManifest.xml
-  2. our MainActivity.kt (asks for access, keeps content clear of the bars)
+  1b. the share target (ShareActivity: "Share to mnemostxt" saves into the inbox)
+  2. our MainActivity.kt (access, insets, folder picker, lock, JS bridge) and
+     ShareActivity.kt
+  2a. androidx.biometric for the lock (fingerprint, face or screen lock)
+  2c. a ProGuard rule keeping the JavaScript bridge in release builds
   2b. the Gradle task that calls back into the Tauri CLI: point it at the real
       CLI file (started as `node <file>`, Tauri records just "tauri")
   3. the launcher icons from app/icons/android
@@ -72,12 +76,81 @@ def manifest():
     print("android-prepare: manifest patched")
 
 
+SHARE_MARK = "mnemostxt-share-v1"
+SHARE = f"""
+        <!-- {SHARE_MARK}: "Share to mnemostxt" saves into the inbox folder (app/android/ShareActivity.kt) -->
+        <activity
+            android:name=".ShareActivity"
+            android:exported="true"
+            android:label="Save to mnemostxt"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+"""
+
+
+def share_target():
+    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
+    s = p.read_text()
+    if SHARE_MARK in s:
+        return
+    s, n = re.subn(r"(\n\s*</application>)", SHARE.rstrip("\n") + r"\1", s, count=1)
+    if not n:
+        die(f"no </application> in {p}")
+    p.write_text(s)
+    print("android-prepare: share target added")
+
+
 def activity():
     found = list((GEN / "app" / "src" / "main").rglob("MainActivity.kt"))
     if not found:
         die("MainActivity.kt not found in the generated project")
     shutil.copyfile(APP / "android" / "MainActivity.kt", found[0])
-    print(f"android-prepare: {found[0].relative_to(ROOT)} replaced")
+    shutil.copyfile(APP / "android" / "ShareActivity.kt", found[0].parent / "ShareActivity.kt")
+    print(f"android-prepare: {found[0].relative_to(ROOT)} replaced, ShareActivity.kt added")
+
+
+PROGUARD_MARK = "mnemostxt-bridge-v1"
+
+
+def proguard():
+    """Release builds shrink code: keep the methods the web page calls."""
+    p = GEN / "app" / "proguard-rules.pro"
+    s = p.read_text() if p.exists() else ""
+    if PROGUARD_MARK in s:
+        return
+    s += (f"\n# {PROGUARD_MARK}: window.MnemostxtAndroid (MainActivity.kt) is called from JavaScript\n"
+          "-keepclassmembers class ar.nih.mnemostxt.MainActivity$Bridge {\n"
+          "    @android.webkit.JavascriptInterface <methods>;\n}\n")
+    p.write_text(s)
+    print("android-prepare: bridge kept in release builds")
+
+
+BIOMETRIC_MARK = "mnemostxt-biometric-v1"
+BIOMETRIC = 'androidx.biometric:biometric:1.1.0'
+
+
+def dependencies():
+    p = GEN / "app" / "build.gradle.kts"
+    s = p.read_text()
+    if BIOMETRIC_MARK in s:
+        return
+    s, n = re.subn(r"(\ndependencies\s*\{)", rf'\1\n    // {BIOMETRIC_MARK}: the lock (MainActivity.kt)\n    implementation("{BIOMETRIC}")', s, count=1)
+    if not n:
+        die(f"no dependencies block in {p}")
+    p.write_text(s)
+    print("android-prepare: androidx.biometric added")
 
 
 # Gradle runs this from app/ (rootDirRel); the CLI lives in frontend/node_modules.
@@ -181,7 +254,10 @@ if __name__ == "__main__":
     a = ap.parse_args()
     init()
     manifest()
+    share_target()
     activity()
+    dependencies()
+    proguard()
     build_task()
     icons()
     signing()

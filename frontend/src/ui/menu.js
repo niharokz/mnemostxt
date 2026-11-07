@@ -5,11 +5,12 @@
 import { ENCODINGS } from '../core/encoding.js';
 import { grouped, PLAIN } from '../core/languages.js';
 import { h, icon } from './dom.js';
+import { allThemes } from '../core/themes.js';
 
 export function menuModel(app, ui) {
   const sub = (label, items) => ({ label, items });
   return [
-    sub('File', ['file.new', 'file.open', 'file.openFolder', '-', 'file.reopen', '-', 'file.save', 'file.saveAs', 'file.saveAll', 'file.rename', 'file.reload', 'file.trash', '-', 'file.close', 'file.closeAll', 'file.closeOthers', '-', 'file.print', '-', 'file.exit']),
+    sub('File', ['file.new', 'file.open', 'file.openFolder', '-', 'file.scratch', 'file.reopen', '-', 'file.save', 'file.saveAs', 'file.saveAll', 'file.rename', 'file.reload', 'file.trash', '-', 'file.close', 'file.closeAll', 'file.closeOthers', '-', 'file.print', '-', 'file.exit']),
     sub('Edit', ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.selectAll', '-',
       sub('Line operations', ['edit.duplicate', 'edit.deleteLine', 'edit.cutLine', 'edit.moveUp', 'edit.moveDown', 'edit.transpose', 'edit.join', 'edit.blankLine', '-', 'edit.sortAsc', 'edit.sortAscCi', 'edit.sortDesc', 'edit.reverse', 'edit.unique', 'edit.removeEmpty']),
       sub('Convert case', ['edit.upper', 'edit.lower', 'edit.title', 'edit.invert']),
@@ -21,11 +22,26 @@ export function menuModel(app, ui) {
       sub('Bookmark', ['bookmark.toggle', 'bookmark.next', 'bookmark.prev', 'bookmark.clear'])]),
     sub('View', ['view.menu', 'view.sidebar', 'view.preview', '-', 'view.wrap', 'view.whitespace', 'view.lineNumbers', 'view.minimap', '-',
       'view.zoomIn', 'view.zoomOut', 'view.zoomReset', '-', 'view.foldAll', 'view.unfoldAll', 'view.fold', 'view.unfold', '-',
-      sub('Theme', ['view.themeDark', 'view.themeLight', 'view.themeSystem']), 'view.fullscreen']),
+      { label: 'Theme', items: () => themeItems(app) }, 'view.opacity', 'view.fullscreen']),
     { label: 'Encoding', items: () => encodingItems(app) },
     { label: 'Language', items: () => languageItems(app, ui) },
     sub('Settings', ['settings.open', 'settings.file', 'settings.notes', 'settings.trash']),
     sub('?', ['help.keys', 'help.about', 'web.logout']),
+  ];
+}
+
+// Built-in themes, then your own (settings.json "themes"), then "Follow system".
+function themeItems(app) {
+  const s = app.settings;
+  const all = Object.entries(allThemes(s.get('themes')));
+  const item = ([id, t]) => ({ label: t.label || id, checked: () => s.get('theme') === id, run: () => s.set({ theme: id }) });
+  const own = all.filter(([, t]) => t.custom);
+  return [
+    ...all.filter(([, t]) => !t.custom).map(item),
+    ...(own.length ? ['-', ...own.map(item)] : []),
+    '-',
+    { label: 'Follow system', checked: () => s.get('theme') === 'system', run: () => s.set({ theme: 'system' }) },
+    { label: 'Edit themes…', run: () => app.emit('show-settings', 'appearance') },
   ];
 }
 

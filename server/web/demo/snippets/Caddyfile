@@ -1,0 +1,5 @@
+# reverse proxy
+notes.example.com {
+	reverse_proxy mnemostxt:8080
+	encode zstd gzip
+}

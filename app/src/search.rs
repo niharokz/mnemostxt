@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_TEXT: usize = 300;
@@ -21,7 +21,16 @@ pub struct Hit {
     pub text: String,
 }
 
-pub fn search(roots: &[PathBuf], query: &str, regex: bool, case_sensitive: bool, hidden: &[String], max: usize) -> Res<Vec<Hit>> {
+/// `skip`: folders left out entirely (the app folder: settings, trash, state).
+pub fn search(
+    roots: &[PathBuf],
+    skip: &[PathBuf],
+    query: &str,
+    regex: bool,
+    case_sensitive: bool,
+    hidden: &[String],
+    max: usize,
+) -> Res<Vec<Hit>> {
     if query.is_empty() {
         return Ok(vec![]);
     }
@@ -39,11 +48,10 @@ pub fn search(roots: &[PathBuf], query: &str, regex: bool, case_sensitive: bool,
         if out.len() >= max {
             break;
         }
-        // the app's own folder (settings, trash) is not searched
-        if dir.ends_with(Path::new(crate::files::APP_DIR[0]).join(crate::files::APP_DIR[1])) {
+        let Ok(canon) = dunce::canonicalize(&dir) else { continue };
+        if skip.iter().any(|s| dunce::canonicalize(s).is_ok_and(|s| s == canon)) {
             continue;
         }
-        let Ok(canon) = dunce::canonicalize(&dir) else { continue };
         if !seen.insert(canon) {
             continue; // a folder that is also inside another root
         }
@@ -113,15 +121,20 @@ mod tests {
         fs::write(root.join("sub/b.txt"), "say héllo hello").unwrap();
         fs::write(root.join(".git/c"), "hello").unwrap();
         fs::write(root.join("bin"), b"hello\0").unwrap();
-        let hits = search(std::slice::from_ref(&root), "hello", false, false, &[".git".into()], 100).unwrap();
+        let hits = search(std::slice::from_ref(&root), &[], "hello", false, false, &[".git".into()], 100).unwrap();
         assert_eq!(hits.len(), 3, "{hits:?}");
         assert_eq!((hits[1].line, hits[1].col), (3, 1));
         assert_eq!(hits[2].col, 11); // characters, not bytes
-        let cs = search(std::slice::from_ref(&root), "Hello", false, true, &[".git".into()], 100).unwrap();
+        let cs = search(std::slice::from_ref(&root), &[], "Hello", false, true, &[".git".into()], 100).unwrap();
         assert_eq!(cs.len(), 1);
-        let re = search(std::slice::from_ref(&root), "h.llo w", true, false, &[], 100).unwrap();
+        let re = search(std::slice::from_ref(&root), &[], "h.llo w", true, false, &[], 100).unwrap();
         assert_eq!(re.len(), 1);
-        assert!(search(std::slice::from_ref(&root), "(", true, false, &[], 100).is_err());
-        assert_eq!(search(&[root], "hello", false, false, &[".git".into()], 1).unwrap().len(), 1);
+        assert!(search(std::slice::from_ref(&root), &[], "(", true, false, &[], 100).is_err());
+        assert_eq!(search(std::slice::from_ref(&root), &[], "hello", false, false, &[".git".into()], 1).unwrap().len(), 1);
+        // the app folder is skipped
+        assert_eq!(
+            search(std::slice::from_ref(&root), &[root.join("sub")], "hello", false, false, &[".git".into()], 100).unwrap().len(),
+            2
+        );
     }
 }

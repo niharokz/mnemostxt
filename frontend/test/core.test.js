@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, basename, dirname, extname, isInside, relative, pretty, validName } from '../src/core/paths.js';
 import { decode, encode, detectEol, looksBinary, ansiLossy, toBase64, fromBase64 } from '../src/core/encoding.js';
-import { comboOf, normalizeCombo } from '../src/core/keys.js';
+import { comboOf, normalizeCombo, applyKeybindings } from '../src/core/keys.js';
+import { resolveTheme, themeIdFor, BUILTIN, COLOR_KEYS } from '../src/core/themes.js';
+import { deviceSlug, stamp } from '../src/core/store.js';
 import { sanitize, DEFAULTS } from '../src/core/settings.js';
 import { transforms, caseOps, tabsToSpaces, leadingSpacesToTabs } from '../src/editor/lineops.js';
 
@@ -69,8 +71,11 @@ test('key combos', () => {
 });
 
 test('settings sanitize', () => {
-  const s = sanitize({ theme: 'neon', fontSize: 99, tabSize: '4', hidden: ['.git', 3], wordWrap: true, extra: 1 });
-  assert.equal(s.theme, DEFAULTS.theme);
+  const s = sanitize({ theme: 'dark', fontSize: 99, tabSize: '4', hidden: ['.git', 3], wordWrap: true, extra: 1, themes: [], scratchFolder: '../x', windowOpacity: 0.01 });
+  assert.equal(s.theme, 'nss-dark'); // 0.0.1 name
+  assert.deepEqual(s.themes, {});
+  assert.equal(s.scratchFolder, DEFAULTS.scratchFolder);
+  assert.equal(s.windowOpacity, 0.2);
   assert.equal(s.fontSize, 40);
   assert.equal(s.tabSize, DEFAULTS.tabSize);
   assert.deepEqual(s.hidden, DEFAULTS.hidden);
@@ -88,4 +93,35 @@ test('line operations', () => {
   assert.equal(caseOps.invert('aBc'), 'AbC');
   assert.equal(tabsToSpaces('\tx\ty', 4), '    x   y');
   assert.equal(leadingSpacesToTabs('      x', 4), '\t  x');
+});
+
+test('themes', () => {
+  const custom = { mine: { label: 'Mine', base: 'nord', keyword: '#ff0000' }, loop: { base: 'loop' } };
+  const t = resolveTheme('mine', custom);
+  assert.equal(t.keyword, '#ff0000');
+  assert.equal(t.bg, BUILTIN.nord.bg);
+  assert.equal(t.mode, 'dark');
+  for (const k of COLOR_KEYS) assert.equal(typeof t[k], 'string', k);
+  assert.equal(resolveTheme('loop', custom).bg, BUILTIN['nss-dark'].bg); // a base loop ends at the default
+  assert.equal(resolveTheme('nope').id, 'nope');
+  assert.equal(themeIdFor({ theme: 'system', themeLight: 'nord' }, true), 'nord');
+  assert.equal(themeIdFor({ theme: 'light' }, false), 'nss-light');
+  for (const id of Object.keys(BUILTIN)) { const th = resolveTheme(id); for (const k of COLOR_KEYS) assert.ok(th[k], `${id}.${k}`); }
+});
+
+test('scratch names', () => {
+  assert.equal(deviceSlug("Nihar's ThinkPad_X1"), 'Nihar-s-ThinkPad-X1');
+  assert.equal(deviceSlug(''), 'device');
+  assert.equal(stamp(new Date(2026, 10, 7, 9, 5, 3)), '20261107-090503');
+});
+
+test('keybinding overrides', () => {
+  const cmds = [{ id: 'a', keys: ['Ctrl+D'], defaultKeys: ['Ctrl+D'], defaultPassive: false }, { id: 'b', keys: ['Ctrl+Z'], defaultKeys: ['Ctrl+Z'], defaultPassive: true, passive: true }];
+  applyKeybindings(cmds, { a: ['shift+ctrl+d'], b: [], c: ['F5'] });
+  assert.deepEqual(cmds[0].keys, ['Ctrl+Shift+D']);
+  assert.deepEqual(cmds[1].keys, []);
+  assert.equal(cmds[1].passive, false);
+  applyKeybindings(cmds, {});
+  assert.deepEqual(cmds[0].keys, ['Ctrl+D']);
+  assert.equal(cmds[1].passive, true);
 });

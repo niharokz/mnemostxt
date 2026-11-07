@@ -1,0 +1,5 @@
+#!/bin/sh
+# m — open files in mnemostxt from a terminal and get the prompt back at once:
+#   m notes.txt  ·  m *.md  ·  m ~/notes  ·  m   (just the window)
+# A running mnemostxt (or one waiting in the tray) takes the files instantly.
+nohup /usr/bin/mnemostxt "$@" >/dev/null 2>&1 &

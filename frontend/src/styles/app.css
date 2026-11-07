@@ -347,3 +347,47 @@ body.mobile .status { gap: 6px; }
 body.mobile .st-left { flex: none; }
 body.mobile .st-right { justify-content: flex-end; flex: 1; }
 body.mobile .st { padding: 0 4px; }
+
+/* ── preferences (sections, theme colours, key bindings) ── */
+@media (min-width: 760px) { dialog.sheet.wide:has(.settings) { width: 820px; } }
+.settings { display: grid; grid-template-columns: 150px 1fr; gap: 0 14px; min-height: 0; }
+.set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; align-self: start; }
+.set-nav button { justify-content: flex-start; text-align: left; min-height: 30px; }
+.set-nav button.on { background: var(--nss-surface-2); color: var(--nss-ink); }
+.set-content { min-width: 0; }
+.set-content > .set-row:first-child, .set-content > p:first-child { margin-top: 2px; }
+.set-row select, .set-row input:not([type]), .set-row input[type=text] { width: 210px; max-width: 52vw; flex: none; }
+.set-row input[type=range] { width: 160px; }
+.set-row .ok { color: var(--nss-ok); } .set-row .bad { color: var(--nss-bad); }
+.theme-ed { display: grid; gap: 8px; padding: 8px 0 10px; border-bottom: 1px solid var(--nss-line); margin-bottom: 6px; }
+.theme-ed .grow { flex: 1; min-width: 0; }
+details.colors summary { cursor: pointer; font: 600 11px var(--nss-mono); text-transform: uppercase; letter-spacing: .09em; color: var(--nss-muted); padding: 4px 0; }
+.color-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 10px; padding: 4px 0 8px; }
+label.color { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-height: 28px; }
+label.color input[type=color] { width: 30px; height: 22px; min-height: 0; padding: 0; border-radius: 5px; border: 1px solid var(--nss-line); background: none; flex: none; cursor: pointer; }
+label.color span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+label.color.own span { color: var(--nss-ink); font-weight: 600; }
+.key-list { display: grid; margin-top: 8px; }
+.key-row { display: grid; grid-template-columns: 1fr 190px 24px; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--nss-line); }
+.key-row.own > div:first-child > div { color: var(--nss-ink); }
+.key-row input { min-height: 28px; font: 12px var(--nss-mono); }
+.mono { font-family: var(--nss-mono); }
+body.mobile .settings { grid-template-columns: 1fr; }
+body.mobile .set-nav { flex-direction: row; overflow-x: auto; position: static; padding-bottom: 6px; }
+body.mobile .key-row { grid-template-columns: 1fr 140px 24px; }
+
+/* ── see-through window (Preferences → Window opacity, desktop) ── */
+html.see-through, html.see-through body { background-color: transparent; }
+html.see-through body.app { background-image: none; background-color: var(--nss-bg); }
+
+/* sign-in card extras (like Natlas and Arthik) */
+.demo-box { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--nss-line); border-radius: 10px; background: var(--nss-surface-2); font-size: .88rem; color: var(--nss-muted); line-height: 1.7; }
+.demo-box b { color: var(--nss-fg); }
+.demo-box code { font: 12.5px var(--nss-mono); color: var(--nss-ink); }
+.demo-box div { margin-top: 8px; }
+.login-foot { margin: 16px 0 0; text-align: center; font-size: .88rem; }
+.login-foot a { color: var(--nss-muted); }
+.demo-bar { display: flex; align-items: center; gap: 10px; padding: 4px 12px; font-size: 12px; background: color-mix(in srgb, var(--nss-warn) 16%, var(--nss-surface)); border-bottom: 1px solid var(--nss-line); }
+.demo-bar .grow { flex: 1; }
+.theme-ed .row > input { flex: 1 1 auto; width: auto; min-width: 0; }
+.theme-ed .row > select { flex: none; width: auto; }

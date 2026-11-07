@@ -13,7 +13,7 @@ check() { # file, found value
 check frontend/package.json "$(sed -n 's/^  "version": "\(.*\)",$/\1/p' frontend/package.json | head -1)"
 check app/Cargo.toml "$(sed -n 's/^version = "\(.*\)"$/\1/p' app/Cargo.toml | head -1)"
 check app/tauri.conf.json "$(sed -n 's/^  "version": "\(.*\)",$/\1/p' app/tauri.conf.json | head -1)"
-grep -q "^## $v " CHANGELOG.md || grep -q "^## $v\$" CHANGELOG.md || { echo "✗ CHANGELOG.md has no '## $v' section"; fail=1; }
+grep -q "^## \[$v\]" CHANGELOG.md || { echo "✗ CHANGELOG.md has no '## [$v]' section"; fail=1; }
 if [ -n "${1:-}" ] && [ "$1" != "v$v" ]; then echo "✗ tag $1 does not match VERSION $v"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "✓ version $v everywhere"
 exit "$fail"

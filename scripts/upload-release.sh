@@ -22,6 +22,7 @@ for pair in "mnemostxt-$V-amd64.deb:mnemostxt-$T-amd64.deb" "mnemostxt-$V-setup.
   esac
 done
 
-awk -v v="$V" '$0 ~ "^## "v"( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > release-notes.md
+# this version's section of CHANGELOG.md ("## [X.Y.Z] - date"), without the link lines
+awk -v v="$V" '$0 ~ "^## \\["v"\\]" {on=1; next} /^## / {on=0} on' CHANGELOG.md | sed '/^\[.*\]: http/d' > release-notes.md
 [ -s release-notes.md ] || echo "mnemostxt $V" > release-notes.md
 echo "✓ release notes from CHANGELOG.md ($(grep -c . release-notes.md) lines)"

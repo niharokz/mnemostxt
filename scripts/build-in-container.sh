@@ -64,6 +64,7 @@ step() {
 # Each step chains with && — `set -e` does not apply inside a function that is
 # called from an `if` (see step()).
 deb() {
+  chmod 755 app/linux/m && # the "m file.txt" launcher (a checkout from Windows may lose the bit)
   (cd app && "$TAURI" build --bundles deb --ci) &&
   cp "$CARGO_TARGET_DIR/release/bundle/deb/mnemostxt_${V}_amd64.deb" "$OUT/mnemostxt-$V-amd64.deb"
 }

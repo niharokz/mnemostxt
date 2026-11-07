@@ -1,5 +1,6 @@
 // mnemostxt — start-up: pick the backend, sign in (web), choose the notes folder
 // (first run), load the shared settings, restore the last session, build the UI.
+// Kept short on purpose: the window shows the restored tabs as soon as possible.
 import '@fontsource/jetbrains-mono/latin-400.css';
 import '@fontsource/jetbrains-mono/latin-700.css';
 import './styles/nss-app.css';
@@ -36,13 +37,14 @@ async function start() {
   const app = new App(backend, settings);
   window.mnemostxt = app; // handy in the devtools console
 
-  await app.loadSession();
   if (backend.notesRoot == null && backend.setNotesRoot) {
     document.body.className = 'app boot';
     await app.chooseNotesRoot(true);
   }
-  await settings.load();
+  await settings.load(); // before the session: it says where scratch and state live
   app.applyLook();
+  app.syncDevice();
+  await app.loadSession();
 
   const shell = new Shell(app);
   await shell.tree.renderAll();

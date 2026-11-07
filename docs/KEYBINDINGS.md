@@ -4,6 +4,10 @@ Notepad++ defaults. They work the same on Linux, Windows, the web and (with a
 hardware keyboard) Android. In the app: **? → Keyboard shortcuts** (F1).
 Generated from `frontend/src/ui/commands.js`.
 
+Change any of them in **Preferences → Keyboard**, or in `settings.json`:
+`"keybindings": { "edit.duplicate": ["Ctrl+Shift+D"], "file.print": [] }`
+(a list replaces the keys, an empty list removes them; the ids are shown in Preferences).
+
 Mouse: **Alt+drag** selects a column · **Ctrl+click** adds a cursor ·
 **middle-click** a tab closes it · a lone **Alt** opens the collapsed menu.
 

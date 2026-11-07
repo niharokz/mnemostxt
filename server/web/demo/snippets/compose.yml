@@ -1,0 +1,8 @@
+services:
+  mnemostxt:
+    image: mnemostxt:local
+    restart: unless-stopped
+    environment:
+      MNEMOSTXT_USER: me
+    volumes:
+      - ./notes:/notes

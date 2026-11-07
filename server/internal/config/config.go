@@ -1,6 +1,7 @@
 // Package config reads the server settings from MNEMOSTXT_* environment
 // variables (in the homelab: the shared .env, passed through docker-compose).
-// Editor settings are not here: they live in <notes>/logs/mnemostxt/settings.json.
+// Editor settings are not here: they live in <notes>/<app folder>/settings.json.
+// Every variable is listed, with its default, in .env.example.
 package config
 
 import (
@@ -18,8 +19,12 @@ type Config struct {
 	Notes       string // MNEMOSTXT_NOTES, the notes folder (container: /notes)
 	NotesName   string // MNEMOSTXT_NOTES_NAME, shown in the sidebar, default "notes"
 	State       string // MNEMOSTXT_STATE, writable folder for bans (container: /state)
+	AppDir      string // MNEMOSTXT_APP_DIR, the app folder inside the notes folder, default logs/mnemostxt
 	User        string // MNEMOSTXT_USER
-	Password    string // MNEMOSTXT_PASSWORD, plain text or a bcrypt hash
+	Password    string // MNEMOSTXT_PASSWORD_HASH (bcrypt, preferred) or MNEMOSTXT_PASSWORD (plain or bcrypt)
+	DemoUser    string // MNEMOSTXT_DEMO_USER, optional read-only demo account (sample notes)
+	DemoPass    string // MNEMOSTXT_DEMO_PASSWORD, shown on the sign-in card
+	Landing     bool   // MNEMOSTXT_LANDING, show the About page at /, default true (false: / goes to the app)
 	Secret      string // MNEMOSTXT_SECRET, signs sessions; empty = random (sign-in ends on restart)
 	MaxFileMB   int    // MNEMOSTXT_MAX_FILE_MB, largest file read or written, default 20
 	BanAfter    int    // MNEMOSTXT_BAN_AFTER failed sign-ins in 15 min, default 5
@@ -56,8 +61,12 @@ func Load(getenv func(string) string) (*Config, error) {
 		Notes:       get("MNEMOSTXT_NOTES", "/notes"),
 		NotesName:   get("MNEMOSTXT_NOTES_NAME", "notes"),
 		State:       get("MNEMOSTXT_STATE", "/state"),
+		AppDir:      get("MNEMOSTXT_APP_DIR", "logs/mnemostxt"),
 		User:        get("MNEMOSTXT_USER", ""),
-		Password:    getenv("MNEMOSTXT_PASSWORD"), // not trimmed: spaces may be part of it
+		Password:    get("MNEMOSTXT_PASSWORD_HASH", getenv("MNEMOSTXT_PASSWORD")), // a plain password is not trimmed: spaces may be part of it
+		DemoUser:    get("MNEMOSTXT_DEMO_USER", ""),
+		DemoPass:    getenv("MNEMOSTXT_DEMO_PASSWORD"),
+		Landing:     get("MNEMOSTXT_LANDING", "true") != "false",
 		Secret:      get("MNEMOSTXT_SECRET", ""),
 		BanPrivate:  get("MNEMOSTXT_BAN_PRIVATE", "false") == "true",
 		Hidden:      []string{".git", ".trash", ".stfolder", ".stversions", ".obsidian", "node_modules"},
@@ -84,7 +93,19 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 	}
 	if c.User == "" || c.Password == "" {
-		return nil, fmt.Errorf("set MNEMOSTXT_USER and MNEMOSTXT_PASSWORD")
+		return nil, fmt.Errorf("set MNEMOSTXT_USER and MNEMOSTXT_PASSWORD_HASH (or MNEMOSTXT_PASSWORD)")
+	}
+	if h := getenv("MNEMOSTXT_PASSWORD_HASH"); h != "" && !strings.HasPrefix(strings.TrimSpace(h), "$2") {
+		return nil, fmt.Errorf("MNEMOSTXT_PASSWORD_HASH must be a bcrypt hash (mnemostxt hash-password)")
+	}
+	if (c.DemoUser == "") != (c.DemoPass == "") {
+		return nil, fmt.Errorf("set both MNEMOSTXT_DEMO_USER and MNEMOSTXT_DEMO_PASSWORD, or neither")
+	}
+	if c.DemoUser != "" && strings.EqualFold(c.DemoUser, c.User) {
+		return nil, fmt.Errorf("MNEMOSTXT_DEMO_USER must differ from MNEMOSTXT_USER")
+	}
+	if strings.Contains(c.AppDir, "..") || strings.HasPrefix(c.AppDir, "/") {
+		return nil, fmt.Errorf("MNEMOSTXT_APP_DIR must be a folder inside the notes folder, like logs/mnemostxt")
 	}
 	return c, nil
 }

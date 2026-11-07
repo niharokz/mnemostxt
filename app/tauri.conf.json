@@ -27,7 +27,7 @@
         "minHeight": 320,
         "center": true,
         "dragDropEnabled": true,
-        "backgroundColor": "#070b0f",
+        "transparent": true,
         "theme": "Dark"
       }
     ],
@@ -117,8 +117,14 @@
     "linux": {
       "deb": {
         "section": "editors",
+        "files": {
+          "/usr/bin/m": "linux/m"
+        },
         "priority": "optional",
         "depends": [],
+        "recommends": [
+          "libayatana-appindicator3-1"
+        ],
         "desktopTemplate": "linux/mnemostxt.desktop"
       }
     },

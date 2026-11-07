@@ -21,22 +21,32 @@
 
 - **A notepad, not an IDE.** No terminal, no plugins, no extensions.
 - **Tabs** for open files; **Open editors** list; middle-click closes, drag reorders.
+  A new tab is a **scratch file** at once (`<app folder>/scratch/`), so nothing
+  typed is ever lost and it shows up on your other devices.
 - **Folder sidebar** with nested folders that collapse and expand. Your **notes
   folder is always there**; on the desktop you can open more folders next to
   it, or open any file on your computer (File → Open, "Open with mnemostxt",
-  the command line, or drag and drop).
+  `mnemostxt file.txt` or `m file.txt` in a terminal, or drag and drop).
 - **Notepad++ key bindings** (see [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md)):
   Ctrl+D duplicates a line, Ctrl+L cuts it, Ctrl+Q comments, F2 bookmarks,
-  Alt+drag column selection, Ctrl+click multi-cursor, Ctrl+Shift+F find in files.
+  Alt+drag column selection, Ctrl+click multi-cursor, Ctrl+Shift+F find in
+  files. Every key can be remapped (Preferences → Keyboard).
 - **140+ languages** highlighted, plus Caddyfile, `.env` and batch files.
+- **Themes**: nss dark and light, Solarized, Nord, Gruvbox, Dracula- and
+  Monokai-style, High contrast — or your own colours (Preferences → Appearance).
 - **Encodings and line endings**: UTF-8, UTF-8 BOM, UTF-16 LE/BE, ANSI; LF, CRLF, CR.
 - **Markdown preview**, and a viewer for images and PDFs.
 - **Never loses work.** Unsaved edits survive closing (or crashing); a file
   changed by another program or device is never overwritten silently;
   Syncthing conflict copies are flagged.
-- **One setting.** Settings live in `<notes>/logs/mnemostxt/settings.json`, so the
-  desktop, phone and web app look and behave the same.
-- **nss look**, dark or light. The menu bar collapses into one button (Alt opens it).
+- **One setting.** Everything lives in the notes folder's app folder
+  (default `logs/mnemostxt/`: `settings.json`, trash, scratch, each device's
+  open tabs), so the desktop, phone and web app look and behave the same.
+  Nothing is written at the top of your notes folder.
+- **Desktop**: optional tray (files open instantly), see-through background
+  for picom and other compositors.
+- **Android**: system folder picker, fingerprint/face/screen-lock lock,
+  "Share to mnemostxt" into your inbox folder.
 
 ## Web app
 
@@ -44,14 +54,19 @@ The web app edits only the notes folder, behind a sign-in.
 
 ```sh
 git clone https://gitlab.com/niharokz/mnemostxt.git && cd mnemostxt
-cp .env.example .env        # set NOTE_PATH, MNEMOSTXT_USER, MNEMOSTXT_PASSWORD, MNEMOSTXT_SECRET
+cp .env.example .env        # NOTE_PATH, MNEMOSTXT_USER, MNEMOSTXT_PASSWORD_HASH, MNEMOSTXT_SECRET
+docker compose build
+docker compose run --rm -T mnemostxt hash-password <<< 'your-password'   # → MNEMOSTXT_PASSWORD_HASH
 docker network create homelab 2>/dev/null || true
-docker compose up -d --build
+docker compose up -d
 ```
 
+An optional demo account (`MNEMOSTXT_DEMO_USER`, `MNEMOSTXT_DEMO_PASSWORD`)
+sees built-in sample notes, read-only; the sign-in card offers it.
+
 Point your reverse proxy at `mnemostxt:8080` on the `homelab` network
-(Caddy: `reverse_proxy mnemostxt:8080`). The home page is at `/`, the editor at
-`/app/`. All settings: [.env.example](.env.example).
+(Caddy: `reverse_proxy mnemostxt:8080`). The About page is at `/`, the editor
+at `/app/`. All settings: [.env.example](.env.example).
 
 ## Layout
 
@@ -59,10 +74,10 @@ Point your reverse proxy at `mnemostxt:8080` on the `homelab` network
 frontend/   the editor UI (Vite + CodeMirror 6), shared by every build
 app/        the Tauri 2 app: Linux, Windows and Android (Rust commands for files)
 server/     the web server (Go, one static binary) with the UI built in
-scripts/    version checks, release, release builds, keystore, icons
+scripts/    release (release.sh + release.conf), version checks, release builds, keystore, icons
 docker/     the release builder image (deb + exe + apk on one Linux machine)
 assets/     logo sources
-docs/       key bindings, runner set-up, releasing
+docs/       key bindings, releasing, GitLab, the runner
 ```
 
 How it fits together: [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -82,22 +97,23 @@ cd ../server && go test -mod=vendor ./...
 
 ## Build and release
 
-A version tag builds all three installers on your own GitLab runner and
-publishes a release with permanent download links:
+Write changes under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md), then:
 
 ```sh
-# 1. add "## X.Y.Z - YYYY-MM-DD" to CHANGELOG.md and commit
-sh scripts/release.sh X.Y.Z     # bumps every version, commits, tags, pushes
+sh scripts/release.sh           # checks, bump, push, wait for CI, tag, wait for the build,
+                                # verify the release and download links, deploy, report
 ```
 
-Build them by hand on any Linux machine with Docker:
+A version tag builds all three installers on your own GitLab runner (the
+shared gtlbrunner project) and publishes a release with permanent download
+links. Build them by hand on any Linux machine with Docker:
 
 ```sh
 sh scripts/make-keystore.sh     # once: the Android signing key, outside the repo
 sh scripts/build-release.sh     # → dist/release/*.deb, *-setup.exe, *.apk
 ```
 
-Runner set-up: [docs/RUNNER.md](docs/RUNNER.md) · Release checklist: [docs/RELEASING.md](docs/RELEASING.md)
+[docs/RELEASING.md](docs/RELEASING.md) · [docs/GITLAB.md](docs/GITLAB.md) · [docs/RUNNER.md](docs/RUNNER.md)
 
 ## Licence
 

@@ -38,3 +38,23 @@ export function normalizeCombo(s) {
   if (key.length === 1) key = key.toUpperCase();
   return [...['Ctrl', 'Alt', 'Shift'].filter((x) => mods.has(x)), key].join('+');
 }
+
+// settings.json "keybindings": { "edit.duplicate": ["Ctrl+Shift+D"], "file.print": [] }
+// replaces a command's keys (an empty list removes them). Unknown ids and
+// malformed keys are ignored. Remapped editor-native commands (undo, copy…)
+// are then handled here instead of by the editor.
+export function applyKeybindings(commands, overrides) {
+  const o = overrides && typeof overrides === 'object' && !Array.isArray(overrides) ? overrides : {};
+  for (const c of commands) {
+    const want = o[c.id];
+    if (Array.isArray(want) && want.every((k) => typeof k === 'string' && k.trim())) {
+      c.keys = want.map((k) => { try { return normalizeCombo(k); } catch { return null; } }).filter(Boolean);
+      c.passive = false;
+      c.remapped = true;
+    } else {
+      c.keys = c.defaultKeys;
+      c.passive = c.defaultPassive;
+      c.remapped = false;
+    }
+  }
+}

@@ -1,6 +1,7 @@
 //! File commands: list, read, write (atomic, with a conflict check), stat,
-//! create, rename, and the trash. Desktop builds may touch any file the user
-//! picks; the notes folder gets its own trash (logs/mnemostxt/trash/), other files go to the
+//! create, rename, remove (app folder only) and the trash. Desktop builds may
+//! touch any file the user picks; the notes folder gets its own trash
+//! (<app folder>/trash/, default logs/mnemostxt/trash/), other files go to the
 //! system trash.
 
 use crate::util::{err, input, io_err, is_inside, mtime_ms, show, Res};
@@ -13,8 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Files larger than this are refused (the editor would not cope anyway).
 pub const MAX_READ: u64 = 50 * 1024 * 1024;
-/// The app's own folder inside the notes folder (settings.json lives here too).
-pub const APP_DIR: [&str; 2] = ["logs", "mnemostxt"];
+/// The app's own folder inside the notes folder (settings.json lives here too),
+/// unless the user picked another one.
+pub const DEFAULT_APP_DIR: &str = "logs/mnemostxt";
 pub const LEDGER: &str = ".mnemostxt-trash.tsv";
 
 #[derive(Serialize, Debug)]
@@ -71,7 +73,8 @@ pub fn stat(path: &Path) -> Res<Option<Stat>> {
     }
 }
 
-pub fn read(path: &Path) -> Res<ReadOut> {
+/// The file's bytes and modification time.
+pub fn read_bytes(path: &Path) -> Res<(Vec<u8>, i64)> {
     let meta = fs::metadata(path).map_err(|e| io_err(e, path))?;
     if meta.is_dir() {
         return Err(err("INVALID", format!("{} is a folder", show(path))));
@@ -80,7 +83,23 @@ pub fn read(path: &Path) -> Res<ReadOut> {
         return Err(err("TOO_LARGE", format!("{} is larger than 50 MB", show(path))));
     }
     let bytes = fs::read(path).map_err(|e| io_err(e, path))?;
-    Ok(ReadOut { data: B64.encode(&bytes), mtime: mtime_ms(&meta), size: bytes.len() as u64 })
+    Ok((bytes, mtime_ms(&meta)))
+}
+
+/// For the base64 bridge (Android, and desktops whose web view cannot send raw bytes).
+pub fn read(path: &Path) -> Res<ReadOut> {
+    let (bytes, mtime) = read_bytes(path)?;
+    Ok(ReadOut { data: B64.encode(&bytes), mtime, size: bytes.len() as u64 })
+}
+
+/// Raw reply for the fast path: 8 bytes of modification time (little-endian),
+/// then the file.
+pub fn read_framed(path: &Path) -> Res<Vec<u8>> {
+    let (bytes, mtime) = read_bytes(path)?;
+    let mut out = Vec::with_capacity(bytes.len() + 8);
+    out.extend_from_slice(&mtime.to_le_bytes());
+    out.extend_from_slice(&bytes);
+    Ok(out)
 }
 
 /// Writes the whole file. With `expected` set, refuses (CONFLICT) when the file
@@ -89,6 +108,10 @@ pub fn read(path: &Path) -> Res<ReadOut> {
 /// symlinks so a linked file stays a link, and keeps the file's permissions.
 pub fn write(path: &Path, data: &str, expected: Option<i64>) -> Res<WriteOut> {
     let bytes = B64.decode(data).map_err(|e| err("INVALID", e))?;
+    write_bytes(path, &bytes, expected)
+}
+
+pub fn write_bytes(path: &Path, bytes: &[u8], expected: Option<i64>) -> Res<WriteOut> {
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let existing = fs::metadata(&target).ok();
     if let (Some(exp), Some(meta)) = (expected, existing.as_ref()) {
@@ -107,7 +130,7 @@ pub fn write(path: &Path, data: &str, expected: Option<i64>) -> Res<WriteOut> {
     let tmp = dir.join(format!(".~{}.{}.mnemostxt-tmp", name, std::process::id()));
     let atomic = (|| -> std::io::Result<()> {
         let mut f = fs::File::create(&tmp)?;
-        f.write_all(&bytes)?;
+        f.write_all(bytes)?;
         f.sync_all()?;
         drop(f);
         if let Some(m) = existing.as_ref() {
@@ -119,7 +142,7 @@ pub fn write(path: &Path, data: &str, expected: Option<i64>) -> Res<WriteOut> {
         // e.g. a read-only folder with a writable file, or a file locked by
         // another program on Windows: fall back to writing in place
         let _ = fs::remove_file(&tmp);
-        fs::write(&target, &bytes).map_err(|e| io_err(e, path))?;
+        fs::write(&target, bytes).map_err(|e| io_err(e, path))?;
     }
     let meta = fs::metadata(&target).map_err(|e| io_err(e, path))?;
     Ok(WriteOut { mtime: mtime_ms(&meta) })
@@ -147,21 +170,38 @@ fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
-/// <notes>/logs/mnemostxt/trash, built from components so it is right on Windows too.
-pub fn trash_dir(notes: &Path) -> PathBuf {
-    notes.join(APP_DIR[0]).join(APP_DIR[1]).join("trash")
+/// Checks an app folder setting: relative, plain names, no "..".
+pub fn valid_app_dir(rel: &str) -> Res<String> {
+    let rel = rel.trim().trim_matches('/');
+    let ok = !rel.is_empty()
+        && rel.len() <= 200
+        && rel.split('/').all(|p| !p.is_empty() && p != "." && p != ".." && p.chars().all(|c| c.is_alphanumeric() || " ._-".contains(c)));
+    if ok {
+        Ok(rel.to_string())
+    } else {
+        Err(err("INVALID", format!("\"{rel}\" is not a valid app folder (use names like logs/mnemostxt)")))
+    }
 }
 
-/// Moves `path` into <notes>/logs/mnemostxt/trash/ and records it in the ledger
+/// <notes>/<app folder>, built from components so it is right on Windows too.
+pub fn app_dir(notes: &Path, rel: &str) -> PathBuf {
+    rel.split('/').filter(|p| !p.is_empty()).fold(notes.to_path_buf(), |acc, p| acc.join(p))
+}
+
+pub fn trash_dir(notes: &Path, rel: &str) -> PathBuf {
+    app_dir(notes, rel).join("trash")
+}
+
+/// Moves `path` into <notes>/<app folder>/trash/ and records it in the ledger
 /// (trash name, original path relative to the notes folder, unix time).
-pub fn trash_into_notes(path: &Path, notes: &Path) -> Res<()> {
+pub fn trash_into_notes(path: &Path, notes: &Path, rel: &str) -> Res<()> {
     let notes = dunce::canonicalize(notes).map_err(|e| io_err(e, notes))?;
     // canonical parent + own name: a symlink is trashed as a link, not its target
     let parent = path.parent().ok_or_else(|| err("INVALID", "no parent folder"))?;
     let fname = path.file_name().ok_or_else(|| err("INVALID", "no file name"))?;
     let src = dunce::canonicalize(parent).map_err(|e| io_err(e, parent))?.join(fname);
     fs::symlink_metadata(&src).map_err(|e| io_err(e, path))?;
-    let trash = trash_dir(&notes);
+    let trash = trash_dir(&notes, rel);
     if src == notes || src.starts_with(&trash) {
         return Err(err("INVALID", "cannot trash the notes folder or the trash itself"));
     }
@@ -185,13 +225,32 @@ pub fn trash_into_notes(path: &Path, notes: &Path) -> Res<()> {
     Ok(())
 }
 
-pub fn trash(path: &Path, notes: Option<&Path>) -> Res<()> {
+pub fn trash(path: &Path, notes: Option<&Path>, rel: &str) -> Res<()> {
     if let Some(n) = notes {
         if is_inside(path, n) {
-            return trash_into_notes(path, n);
+            return trash_into_notes(path, n, rel);
         }
     }
     system_trash(path)
+}
+
+/// Deletes one file, only inside the app folder (session state, backups of
+/// unsaved edits, empty scratch files). Notes themselves only ever go to the trash.
+pub fn remove(path: &Path, notes: &Path, rel: &str) -> Res<()> {
+    let root = app_dir(notes, rel);
+    if !is_inside(path, &root) || canonical_or_root(path, &root) {
+        return Err(err("DENIED", format!("{} is not in the app folder", show(path))));
+    }
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => Err(err("INVALID", format!("{} is a folder", show(path)))),
+        Ok(_) => fs::remove_file(path).map_err(|e| io_err(e, path)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_err(e, path)),
+    }
+}
+
+fn canonical_or_root(path: &Path, root: &Path) -> bool {
+    crate::util::canonical_or_self(path) == crate::util::canonical_or_self(root)
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -214,8 +273,8 @@ fn size_of(p: &Path) -> u64 {
 
 /// Permanently deletes trash items older than `days` (ledger time, else mtime).
 /// The only place mnemostxt deletes anything.
-pub fn purge(notes: &Path, days: u64) -> Res<PurgeOut> {
-    let trash = trash_dir(notes);
+pub fn purge(notes: &Path, rel: &str, days: u64) -> Res<PurgeOut> {
+    let trash = trash_dir(notes, rel);
     let ledger_path = trash.join(LEDGER);
     let ledger = fs::read_to_string(&ledger_path).unwrap_or_default();
     let mut when = std::collections::HashMap::new();
@@ -274,6 +333,9 @@ mod tests {
         let r = read(&f).unwrap();
         assert_eq!(B64.decode(r.data).unwrap(), b"one");
         assert_eq!(r.mtime, w.mtime);
+        let framed = read_framed(&f).unwrap();
+        assert_eq!(i64::from_le_bytes(framed[..8].try_into().unwrap()), w.mtime);
+        assert_eq!(&framed[8..], b"one");
         assert!(write(&f, &B64.encode(b"two"), Some(w.mtime - 5000)).unwrap_err().starts_with("CONFLICT"));
         write(&f, &B64.encode(b"two"), Some(w.mtime)).unwrap();
         assert_eq!(fs::read(&f).unwrap(), b"two");
@@ -309,18 +371,30 @@ mod tests {
         rename(&a, &b).unwrap();
         fs::write(notes.join("c.md"), "").unwrap();
         assert!(rename(&b, &notes.join("c.md")).unwrap_err().starts_with("EXISTS"));
-        trash(&b, Some(&notes)).unwrap();
+        let rel = DEFAULT_APP_DIR;
+        trash(&b, Some(&notes), rel).unwrap();
         fs::write(notes.join("b.md"), "again").unwrap();
-        trash(&notes.join("b.md"), Some(&notes)).unwrap();
-        assert!(trash_dir(&notes).join("b.md").exists());
-        assert!(trash_dir(&notes).join("b (1).md").exists());
-        let ledger = fs::read_to_string(trash_dir(&notes).join(LEDGER)).unwrap();
+        trash(&notes.join("b.md"), Some(&notes), rel).unwrap();
+        assert!(trash_dir(&notes, rel).join("b.md").exists());
+        assert!(trash_dir(&notes, rel).join("b (1).md").exists());
+        let ledger = fs::read_to_string(trash_dir(&notes, rel).join(LEDGER)).unwrap();
         assert_eq!(ledger.lines().count(), 2);
         assert!(ledger.contains("\tb.md\t"));
-        assert_eq!(purge(&notes, 30).unwrap().removed, 0); // too new
-        assert_eq!(purge(&notes, 0).unwrap().removed, 2);
-        assert!(fs::read_to_string(trash_dir(&notes).join(LEDGER)).unwrap().is_empty());
-        assert!(trash(&notes, Some(&notes)).is_err());
+        assert_eq!(purge(&notes, rel, 30).unwrap().removed, 0); // too new
+        assert_eq!(purge(&notes, rel, 0).unwrap().removed, 2);
+        assert!(fs::read_to_string(trash_dir(&notes, rel).join(LEDGER)).unwrap().is_empty());
+        assert!(trash(&notes, Some(&notes), rel).is_err());
+        // remove: only files inside the app folder
+        let state = app_dir(&notes, rel).join("state");
+        fs::create_dir_all(&state).unwrap();
+        fs::write(state.join("x.txt"), "").unwrap();
+        remove(&state.join("x.txt"), &notes, rel).unwrap();
+        assert!(!state.join("x.txt").exists());
+        assert!(remove(&notes.join("c.md"), &notes, rel).unwrap_err().starts_with("DENIED"));
+        assert!(remove(&app_dir(&notes, rel), &notes, rel).is_err());
+        assert!(remove(&state, &notes, rel).unwrap_err().starts_with("INVALID"));
+        assert!(valid_app_dir("../x").is_err() && valid_app_dir("").is_err() && valid_app_dir("C:/x").is_err());
+        assert_eq!(valid_app_dir("/logs/app/").unwrap(), "logs/app");
         // nothing at the top of the notes folder but the user's own files
         let top: Vec<_> = fs::read_dir(&notes).unwrap().map(|e| e.unwrap().file_name()).collect();
         assert_eq!(top.len(), 3, "{top:?}"); // sub, c.md, logs

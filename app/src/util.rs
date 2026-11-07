@@ -78,6 +78,49 @@ pub fn canonical_or_self(p: &Path) -> PathBuf {
     }
 }
 
+/// Decodes %XX escapes (paths arrive URL-encoded in IPC headers).
+pub fn percent_decode(s: &str) -> Res<String> {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' {
+            let hex = s.get(i + 1..i + 3).ok_or_else(|| err("INVALID", "bad escape"))?;
+            out.push(u8::from_str_radix(hex, 16).map_err(|_| err("INVALID", "bad escape"))?);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| err("INVALID", "path is not UTF-8"))
+}
+
+/// This computer's name, for scratch file names (the user can change it).
+pub fn host_name() -> String {
+    let from_env = std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).ok();
+    let from_file = || std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string());
+    from_env.filter(|s| !s.is_empty()).or_else(from_file).filter(|s| !s.is_empty()).unwrap_or_else(|| std::env::consts::OS.to_string())
+}
+
+/// Keeps letters, digits and dashes (a device name goes into file names).
+pub fn device_slug(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') && !out.is_empty() {
+            out.push('-');
+        }
+    }
+    let out = out.trim_end_matches('-').chars().take(40).collect::<String>();
+    if out.is_empty() {
+        "device".into()
+    } else {
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,6 +134,14 @@ mod tests {
         assert!(input("  ", Some(home)).is_err());
         assert_eq!(show(Path::new("a\\b/c")), "a/b/c");
         assert_eq!(show(Path::new("//?/D:/x")), "D:/x");
+    }
+
+    #[test]
+    fn decodes_and_slugs() {
+        assert_eq!(percent_decode("D%3A%2Fnotes%2Fa%20b%C3%A9.md").unwrap(), "D:/notes/a bé.md");
+        assert!(percent_decode("%zz").is_err() && percent_decode("%4").is_err());
+        assert_eq!(device_slug("Nihar's ThinkPad!"), "Nihar-s-ThinkPad");
+        assert_eq!(device_slug("…"), "device");
     }
 
     #[test]

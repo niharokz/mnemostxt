@@ -93,7 +93,10 @@ export class Shell {
     this.empty = h('div.empty-state');
     this.prevResizer = h('div.resizer.v.prev', { 'aria-hidden': 'true' });
     this.work = h('div.work', {}, this.editorHost, this.viewer.el, this.empty, this.prevResizer, this.preview.el);
-    this.center = h('main.center-col', {}, this.tabs.el, this.banner, this.work);
+    const demoBar = app.backend.isDemo
+      ? h('div.demo-bar', {}, h('span.grow', {}, 'Demo: sample notes, read-only.'), h('a', { href: '/' }, 'About'), h('a', { href: '#', onclick: (e) => { e.preventDefault(); this.logout(); } }, 'Sign out'))
+      : null;
+    this.center = h('main.center-col', {}, demoBar, this.tabs.el, this.banner, this.work);
     this.main = h('div.main', {}, this.side, this.sideResizer, this.center);
 
     this.symbar = app.mobile ? this.buildSymbolBar() : null;
@@ -133,7 +136,12 @@ export class Shell {
     app.on('cursor', () => this.renderTitle());
     app.on('preview', () => this.showActive(app.active));
     app.on('drawer', (open) => this.toggleSidebar(open));
-    app.on('settings', () => this.status.render());
+    app.on('settings', (keys) => {
+      this.status.render();
+      if (keys.includes('diskCheckSeconds')) this.startDiskTimer();
+      if (keys.includes('keybindings')) this.menu.render();
+    });
+    app.on('show-settings', (section) => this.showSettings(section));
 
     const recheck = debounce(() => { app.checkDisk(); this.tree.refreshAll(); }, 250);
     addEventListener('focus', recheck);
@@ -141,9 +149,16 @@ export class Shell {
       if (document.visibilityState === 'visible') recheck();
       else app.flush();
     });
-    setInterval(() => { if (document.visibilityState === 'visible') app.checkDisk(); }, app.backend.kind === 'web' ? 30000 : 15000);
+    this.startDiskTimer();
 
-    if (app.backend.onCloseRequested) app.backend.onCloseRequested(async () => { await app.flush(); });
+    // closing the window: save state; with the tray on, only hide (files then open instantly)
+    if (app.backend.onCloseRequested) {
+      app.backend.onCloseRequested(async (ev) => {
+        await app.flush();
+        if (app.settings.get('keepInTray') && app.backend.hide) { ev.preventDefault(); app.backend.hide(); }
+      });
+    }
+    app.backend.onQuitRequested?.(async () => { await app.flush(); app.backend.quit(); });
     addEventListener('beforeunload', () => { app.flush(); });
     addEventListener('beforeprint', () => { this.printArea.textContent = app.active?.kind === 'text' ? app.textOf(app.active) : ''; });
 
@@ -167,6 +182,14 @@ export class Shell {
         else if (app.ui.preview) app.setPreview(false);
       });
     }
+  }
+
+  // Polls open files for changes made elsewhere (another program or device).
+  startDiskTimer() {
+    const app = this.app;
+    clearInterval(this.diskTimer);
+    const secs = Math.max(app.backend.kind === 'web' ? 30 : 5, app.settings.get('diskCheckSeconds'));
+    this.diskTimer = setInterval(() => { if (document.visibilityState === 'visible') app.checkDisk(); }, secs * 1000);
   }
 
   dragResize(handle, onMove) {
@@ -361,7 +384,18 @@ export class Shell {
     toast(`Zoom ${app.fontSize()}px`, { ms: 900 });
   }
 
-  showSettings() { return showSettings(this.app); }
+  showSettings(section) { return showSettings(this.app, this, section); }
+
+  // Shows the scratch folder (new tabs that were never saved) in the sidebar.
+  async revealScratch() {
+    const dir = this.app.store.scratchDir;
+    if (!dir) return;
+    await this.app.backend.mkdirAll(dir).catch(() => {});
+    if (!this.app.ui.sidebar || this.app.mobile) this.toggleSidebar(true);
+    this.setSideView('files');
+    this.app.emit('tree-changed', dir.replace(/\/[^/]+$/, ''));
+    this.app.emit('reveal', dir);
+  }
 
   async logout() {
     await this.app.flush();

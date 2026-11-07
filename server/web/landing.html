@@ -2,58 +2,140 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#070b0f">
-<title>mnemostxt</title>
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3a807a">
+<meta name="description" content="mnemostxt: just a notepad. Tabs, a folder sidebar, Notepad++ keys and syntax colours for 140+ languages, on Linux, Windows, Android and the web. Your notes stay plain files.">
+<title>mnemostxt - just a notepad</title>
+<link rel="icon" href="/icon.svg?v={{.Version}}" type="image/svg+xml">
 <style>
-:root{--bg:#070b0f;--surface:#0f161b;--line:#1f2c33;--fg:#e6ecec;--muted:#8b979a;--accent:#3a807a;--ink:#66bdb3;--lilac:#a9b8ff;--mono:ui-monospace,"JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:dark}
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;color:var(--fg);font:16px/1.65 var(--sans);background:radial-gradient(45rem 28rem at 105% -10%,rgba(58,128,122,.22),transparent 70%),linear-gradient(rgba(58,128,122,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(58,128,122,.09) 1px,transparent 1px) var(--bg);background-size:auto,40px 40px,40px 40px}
-.wrap{max-width:46rem;margin:0 auto;padding:0 1.4rem}
-header{display:flex;align-items:center;gap:.6rem;padding:1.2rem 0}
-.brand{font:700 1.05rem var(--mono)}.brand::before{content:"~/";color:var(--muted);font-weight:500}.brand::after{content:"_";color:var(--accent);animation:b 1.2s steps(1) infinite}
-@keyframes b{50%{opacity:0}}
-header .sp{flex:1}
-a.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.55rem 1rem;border-radius:10px;border:1px solid var(--line);background:#152027;color:var(--fg);text-decoration:none;font-size:.95rem}
-a.btn:hover{border-color:var(--accent)}
-a.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-h1{font:700 clamp(2rem,6vw,3rem)/1.1 var(--sans);letter-spacing:-.03em;margin:3.5rem 0 .8rem}
-h1 em{font-style:normal;color:var(--ink)}
-.lead{color:var(--muted);font-size:1.1rem;max-width:36rem}
-.actions{display:flex;flex-wrap:wrap;gap:.6rem;margin:1.8rem 0 3rem}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.8rem}
-.card{padding:1rem 1.1rem;border:1px solid var(--line);border-radius:12px;background:rgba(15,22,27,.85)}
-.card b{display:block;font-family:var(--mono);font-size:.82rem;color:var(--lilac);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem}
-.card span{color:var(--muted);font-size:.93rem}
-footer{color:var(--muted);font:.8rem var(--mono);padding:3rem 0 2rem}
-footer a{color:var(--muted)}
+/* The public "about" page at "/": the nss tokens and the layout of the other
+   nih.ar apps (Natlas, Arthik): brand + Sign in, big lead, cards, steps. */
+:root{--nss-bg:#070b0f;--nss-surface:#0f161b;--nss-surface-2:#152027;--nss-line:#1f2c33;--nss-fg:#e6ecec;--nss-muted:#8b979a;
+  --nss-accent:#3a807a;--nss-ink:#66bdb3;--nss-accent-2:#a9b8ff;--nss-on-accent:#fff;--nss-grid:rgba(58,128,122,.09);--nss-glow:rgba(58,128,122,.22);
+  --nss-sans:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;--nss-mono:ui-monospace,"JetBrains Mono","Cascadia Code","SF Mono",Menlo,Consolas,monospace;
+  --nss-radius:12px;color-scheme:dark}
+@media (prefers-color-scheme:light){:root{--nss-bg:#f6f8f8;--nss-surface:#fff;--nss-surface-2:#eaf1f0;--nss-line:#d7e2e0;--nss-fg:#14201f;--nss-muted:#5c6b6a;
+  --nss-ink:#2c6a64;--nss-accent-2:#4b5bb5;--nss-grid:rgba(58,128,122,.10);--nss-glow:rgba(58,128,122,.12);color-scheme:light}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;min-height:100vh;font:16px/1.6 var(--nss-sans);color:var(--nss-fg);
+  background:radial-gradient(45rem 28rem at 105% -10%,var(--nss-glow),transparent 70%),linear-gradient(var(--nss-grid) 1px,transparent 1px),linear-gradient(90deg,var(--nss-grid) 1px,transparent 1px) var(--nss-bg);
+  background-size:auto,32px 32px,32px 32px;background-attachment:fixed}
+a{color:var(--nss-ink)}
+code{font:.88em var(--nss-mono);color:var(--nss-accent-2)}
+pre{overflow-x:auto;padding:.8rem 1rem;background:var(--nss-surface-2);font:.82rem/1.5 var(--nss-mono);color:var(--nss-fg)}
+body>.about{max-width:62rem;margin:0 auto;padding:1.25rem 1rem 4rem}
+.about nav{display:flex;align-items:center;gap:.6rem;padding:.25rem 0 2rem}
+.about .brand{display:flex;align-items:center;gap:.6rem;flex:1;font:750 1.2rem var(--nss-mono);color:var(--nss-fg);text-decoration:none;letter-spacing:-.02em}
+.about .brand img{width:34px;height:34px;border-radius:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:2.4rem;padding:.5rem 1rem;border:1px solid var(--nss-line);border-radius:10px;
+  background:var(--nss-surface-2);color:var(--nss-fg);font:600 .92rem var(--nss-sans);text-decoration:none;transition:border-color .2s,filter .2s}
+.btn:hover{border-color:var(--nss-accent);color:var(--nss-fg)}
+.btn.primary{background:var(--nss-accent);border-color:var(--nss-accent);color:var(--nss-on-accent)}
+.btn.primary:hover{filter:brightness(1.1)}
+.lead{margin:.5rem 0 1rem;font-size:clamp(1.9rem,6vw,3.1rem);font-weight:800;line-height:1.1;letter-spacing:-.03em}
+.lead em{font-style:normal;color:var(--nss-ink)}
+.intro{max-width:44rem;font-size:1.08rem;color:var(--nss-muted)}
+.cta{display:flex;flex-wrap:wrap;gap:.6rem;margin:1.4rem 0 .8rem}
+.muted{color:var(--nss-muted);font-size:.92rem}
+.about h2{margin:2.6rem 0 .7rem;font-size:1.35rem}
+.about h3{margin:0 0 .4rem;font-size:1rem}
+.card{padding:1rem 1.1rem;background:var(--nss-surface);border:1px solid var(--nss-line);border-radius:var(--nss-radius)}
+.feat{display:grid;gap:.75rem;grid-template-columns:minmax(0,1fr);margin-top:1.8rem}
+@media (min-width:640px){.feat{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:900px){.feat{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.feat .card h2{margin:0 0 .35rem;font-size:1.02rem;letter-spacing:-.01em}
+.feat .card p{margin:0;color:var(--nss-muted);font-size:.92rem;line-height:1.55}
+.table{overflow-x:auto}
+.table table{width:100%;border-collapse:collapse}
+.table th,.table td{padding:.5rem .8rem;border-bottom:1px solid var(--nss-line);text-align:left;vertical-align:top}
+.table th{font:600 .78rem var(--nss-mono);text-transform:uppercase;letter-spacing:.06em;color:var(--nss-muted)}
+.table td:first-child{white-space:nowrap;font-weight:600}
+.table td:last-child{color:var(--nss-muted)}
+.about pre{margin:.4rem 0 1rem;border:1px solid var(--nss-line);border-radius:10px;max-width:100%}
+.steps{list-style:none;counter-reset:step;padding:0;margin:1rem 0;display:grid;gap:.9rem}
+.steps>li{counter-increment:step;position:relative;margin:0;padding:1rem 1.1rem 1rem 3.4rem;background:var(--nss-surface);border:1px solid var(--nss-line);border-radius:var(--nss-radius);min-width:0}
+.steps>li::before{content:counter(step);position:absolute;left:1rem;top:1rem;display:grid;place-items:center;width:1.7rem;height:1.7rem;border-radius:50%;
+  background:var(--nss-accent);color:var(--nss-on-accent);font:700 .85rem var(--nss-mono)}
+.steps p{margin:.3rem 0 0;color:var(--nss-muted);font-size:.92rem}
+.steps pre{margin:.5rem 0 0}
+@media (max-width:480px){.steps>li{padding-left:1rem;padding-top:3.1rem}}
+.feat>*{min-width:0}
+.about footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--nss-line);color:var(--nss-muted);font-size:.85rem}
+.about footer a{color:inherit}
+@media (max-width:640px){
+  .table table,.table tbody,.table tr,.table td{display:block;width:auto}
+  .table thead{display:none}
+  .table tr{padding:.7rem .2rem;border-bottom:1px solid var(--nss-line)}
+  .table td{border:0;padding:.1rem .8rem}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <img src="/icon.svg" width="28" height="28" alt="">
-    <span class="brand">mnemostxt</span>
-    <span class="sp"></span>
-    <a class="btn" href="/app/">{{if .Signed}}Open{{else}}Sign in{{end}}</a>
-  </header>
-  <main>
-    <h1>Just a <em>notepad</em>.</h1>
-    <p class="lead">Tabs, a folder sidebar, Notepad++ keys and syntax highlighting for 140+ languages — on Linux, Windows, Android and here on the web. Your notes stay plain files.</p>
-    <div class="actions">
-      <a class="btn primary" href="/app/">{{if .Signed}}Open your notes{{else}}Sign in{{end}}</a>
-      <a class="btn" href="{{.EXE}}">Windows</a>
-      <a class="btn" href="{{.DEB}}">Linux (.deb)</a>
-      <a class="btn" href="{{.APK}}">Android</a>
-    </div>
-    <div class="cards">
-      <div class="card"><b>Plain files</b><span>Edits your notes folder directly. Sync it with Syncthing; nothing is locked in.</span></div>
-      <div class="card"><b>One setting</b><span>Settings live in the notes folder, so every device looks and behaves the same.</span></div>
-      <div class="card"><b>Never loses work</b><span>Unsaved edits survive closing the app; changes on disk are caught before saving over them.</span></div>
-    </div>
-  </main>
-  <footer>mnemostxt {{.Version}} · <a href="{{.Source}}">source</a></footer>
-</div>
+<main class="about">
+  <nav>
+    <a class="brand" href="/"><img src="/icon.svg?v={{.Version}}" alt="" width="34" height="34">mnemostxt</a>
+    <a class="btn primary" href="/app/">{{if .Signed}}Open{{else}}Sign in{{end}}</a>
+  </nav>
+
+  <h1 class="lead">Just a <em>notepad</em>.</h1>
+  <p class="intro">Tabs, a folder sidebar, Notepad++ keys and syntax colours for 140+ languages. One app on Linux, Windows, Android and here
+    on the web; your notes stay plain files in one folder, and every device shares one settings file.</p>
+  <div class="cta">
+    <a class="btn primary" href="/app/">{{if .Signed}}Open your notes{{else}}Sign in{{end}}</a>
+    <a class="btn" href="{{.EXE}}">⬇ Windows (setup.exe)</a>
+    <a class="btn" href="{{.DEB}}">⬇ Linux (.deb)</a>
+    <a class="btn" href="{{.APK}}">⬇ Android app (APK)</a>
+    <a class="btn" href="{{.Source}}">Source code</a>
+  </div>
+  {{if .Demo}}<p class="muted">Just looking? <a href="/app/">Sign in</a> with the demo account shown on the sign-in card: sample notes, read-only.</p>{{end}}
+
+  <section class="feat" aria-label="Features">
+    <div class="card"><h2>📝 A real notepad</h2><p>Tabs, multi-cursor, column select, bookmarks, folding, line operations, encodings and line endings, markdown preview.</p></div>
+    <div class="card"><h2>⌨️ Notepad++ keys</h2><p>Ctrl+D, Ctrl+Shift+Up, Alt+drag, F2 bookmarks, Ctrl+Q comments, and more. Remap any of them in Preferences.</p></div>
+    <div class="card"><h2>📁 Your notes folder</h2><p>Always in the sidebar, next to any other folder you open. Sync it with Syncthing; nothing is locked in.</p></div>
+    <div class="card"><h2>🎨 Themes</h2><p>nss dark and light, Solarized, Nord, Gruvbox and more, or your own colours, the same on every device.</p></div>
+    <div class="card"><h2>💾 Never loses work</h2><p>Unsaved edits survive closing the app; new tabs live as scratch files; changes on disk are caught before saving over them.</p></div>
+    <div class="card"><h2>🔒 Private</h2><p>Single owner, hashed password, IP bans, signed cookies, no tracking. Android has a fingerprint lock and a share target.</p></div>
+  </section>
+
+  <h2 id="apps">Apps</h2>
+  <div class="table">
+    <table>
+      <thead><tr><th>Where</th><th>What you get</th></tr></thead>
+      <tbody>
+        <tr><td>🐧 Linux</td><td>A .deb; opens any text file (<code>mnemostxt file.txt</code>), optional tray, see-through background for picom</td></tr>
+        <tr><td>🪟 Windows</td><td>setup.exe for your user, no admin; “Open with mnemostxt” for .txt and .md</td></tr>
+        <tr><td>🤖 Android</td><td>Works offline on your synced folder, folder picker, fingerprint lock, “Share to mnemostxt” into your inbox</td></tr>
+        <tr><td>🌐 Web</td><td>This server: your notes folder in any browser, after signing in</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="install">Run your own</h2>
+  <ol class="steps">
+    <li>
+      <h3>Get it</h3>
+      <pre>git clone https://gitlab.com/niharokz/mnemostxt.git && cd mnemostxt
+cp .env.example .env</pre>
+    </li>
+    <li>
+      <h3>Set the login in <code>.env</code></h3>
+      <pre>docker compose run --rm mnemostxt hash-password   # MNEMOSTXT_PASSWORD_HASH
+openssl rand -hex 32                              # MNEMOSTXT_SECRET</pre>
+      <p>Plus <code>MNEMOSTXT_USER</code> and <code>NOTE_PATH</code> (your notes folder). A demo account is optional.</p>
+    </li>
+    <li>
+      <h3>Start it behind HTTPS</h3>
+      <pre>docker compose up -d --build</pre>
+      <p>Point your proxy at <code>mnemostxt:8080</code> and sign in.</p>
+    </li>
+  </ol>
+  <p class="muted">Everything else is in the <a href="{{.Source}}/-/blob/main/README.md">README</a>.</p>
+
+  <footer>
+    mnemostxt {{.Version}} · MIT · <a href="{{.Source}}/-/blob/main/CHANGELOG.md">changelog</a> ·
+    <a href="https://gitlab.com/niharokz/mnemostxt">GitLab</a> · <a href="https://github.com/niharokz/mnemostxt">GitHub</a> · <a href="https://codeberg.org/niharokz/mnemostxt">Codeberg</a>
+  </footer>
+</main>
 </body>
 </html>

@@ -36,6 +36,7 @@ export function createMemoryBackend() {
     notesName: 'notes',
     startupFiles: [],
     canOpenAnywhere: true,
+    deviceName: 'demo',
     demo: true,
 
     async setNotesRoot(p) { dirs.add(p); be.notesRoot = p; return p; },
@@ -79,6 +80,7 @@ export function createMemoryBackend() {
       for (const k of [...files.keys()]) if (k === path || k.startsWith(path + '/')) files.delete(k);
       for (const d of [...dirs]) if (d === path || d.startsWith(path + '/')) dirs.delete(d);
     },
+    async remove(path) { files.delete(path); },
     async trashPurge() { return { removed: 0, bytes: 0 }; },
     async search(roots, query, o) {
       const out = [];

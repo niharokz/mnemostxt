@@ -1,11 +1,15 @@
-// Package auth signs the one owner in, with signed session cookies, a
-// sliding-window limit on failed sign-ins and bans that survive restarts.
+// Package auth signs people in, with signed session cookies, a sliding-window
+// limit on failed sign-ins and bans that survive restarts.
 //
-//   - The password may be plain text or a bcrypt hash (`mnemostxt hash-password`);
+//   - Two accounts at most: the owner (MNEMOSTXT_USER) and, optionally, a demo
+//     account (MNEMOSTXT_DEMO_USER) that sees a read-only sample folder. The demo
+//     credentials are shown on the sign-in card, nowhere else.
+//   - A password may be plain text or a bcrypt hash (`mnemostxt hash-password`);
 //     comparisons take constant time, and an unknown user costs as long as a
 //     wrong password.
-//   - The session cookie is user|expiry|HMAC-SHA256. The key comes from
-//     MNEMOSTXT_SECRET *and* the password, so changing either signs out everywhere.
+//   - The session cookie is user|expiry|HMAC-SHA256. Each account's key comes
+//     from MNEMOSTXT_SECRET *and* its password, so changing either signs that
+//     account out everywhere.
 //   - Over HTTPS the cookie is "__Host-mnemostxt" (Secure, Path=/, no Domain).
 //   - BanAfter failures within 15 minutes ban the address for BanHours (saved in
 //     the state folder). LAN and Tailscale addresses are only slowed down unless
@@ -46,19 +50,28 @@ const (
 )
 
 type Options struct {
-	User, Password, Secret string
+	User, Password         string // the owner
+	DemoUser, DemoPassword string // optional read-only demo account
+	Secret                 string
 	BanAfter               int
 	BanFor                 time.Duration
 	BanPrivate             bool
 	StateDir               string // bans.json lives here; "" = in memory only
 }
 
+// Account is someone who can sign in.
+type Account struct {
+	User     string
+	Demo     bool
+	password string
+	key      []byte
+}
+
 type Auth struct {
-	user, password string
-	key            []byte
-	dummy          string
-	opt            Options
-	now            func() time.Time
+	accounts []*Account
+	dummy    string
+	opt      Options
+	now      func() time.Time
 
 	mu    sync.Mutex
 	fails map[string][]time.Time
@@ -73,9 +86,17 @@ func New(o Options) *Auth {
 		secret = hex.EncodeToString(b)
 		log.Printf("auth: MNEMOSTXT_SECRET is empty — sessions end when the server restarts")
 	}
-	user := strings.ToLower(strings.TrimSpace(o.User))
-	k := sha256.Sum256([]byte("mnemostxt-session\x00" + secret + "\x00" + user + "\x00" + o.Password))
-	a := &Auth{user: user, password: o.Password, key: k[:], opt: o, now: time.Now, fails: map[string][]time.Time{}, bans: map[string]time.Time{}}
+	a := &Auth{opt: o, now: time.Now, fails: map[string][]time.Time{}, bans: map[string]time.Time{}}
+	add := func(user, pw string, demo bool) {
+		user = strings.ToLower(strings.TrimSpace(user))
+		if user == "" || pw == "" {
+			return
+		}
+		k := sha256.Sum256([]byte("mnemostxt-session\x00" + secret + "\x00" + user + "\x00" + pw))
+		a.accounts = append(a.accounts, &Account{User: user, Demo: demo, password: pw, key: k[:]})
+	}
+	add(o.User, o.Password, false)
+	add(o.DemoUser, o.DemoPassword, true)
 	a.dummy = secret
 	if IsHash(o.Password) {
 		a.dummy = o.Password
@@ -100,50 +121,91 @@ func checkPassword(stored, given string) bool {
 	return subtle.ConstantTimeCompare([]byte(stored), []byte(given)) == 1
 }
 
-// Check reports whether user and password are right.
-func (a *Auth) Check(user, pw string) bool {
-	if strings.ToLower(strings.TrimSpace(user)) != a.user {
-		checkPassword(a.dummy, pw)
-		return false
+func (a *Auth) account(user string) *Account {
+	user = strings.ToLower(strings.TrimSpace(user))
+	for _, acc := range a.accounts {
+		if acc.User == user {
+			return acc
+		}
 	}
-	return checkPassword(a.password, pw)
+	return nil
 }
 
-func (a *Auth) sign(p string) string {
-	m := hmac.New(sha256.New, a.key)
+// Check returns the account when user and password are right.
+func (a *Auth) Check(user, pw string) *Account {
+	acc := a.account(user)
+	if acc == nil {
+		checkPassword(a.dummy, pw)
+		return nil
+	}
+	if !checkPassword(acc.password, pw) {
+		return nil
+	}
+	return acc
+}
+
+func sign(key []byte, p string) string {
+	m := hmac.New(sha256.New, key)
 	m.Write([]byte(p))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
-func (a *Auth) Token(exp time.Time) string {
-	p := a.user + "|" + strconv.FormatInt(exp.Unix(), 10)
-	return base64.RawURLEncoding.EncodeToString([]byte(p + "|" + a.sign(p)))
+func (a *Auth) Token(acc *Account, exp time.Time) string {
+	p := acc.User + "|" + strconv.FormatInt(exp.Unix(), 10)
+	return base64.RawURLEncoding.EncodeToString([]byte(p + "|" + sign(acc.key, p)))
 }
 
-func (a *Auth) Valid(tok string) bool {
+// Valid returns the account a session token belongs to, or nil.
+func (a *Auth) Valid(tok string) *Account {
 	raw, err := base64.RawURLEncoding.DecodeString(tok)
 	if err != nil {
-		return false
+		return nil
 	}
 	parts := strings.Split(string(raw), "|")
-	if len(parts) != 3 || parts[0] != a.user {
-		return false
+	if len(parts) != 3 {
+		return nil
 	}
-	if !hmac.Equal([]byte(a.sign(parts[0]+"|"+parts[1])), []byte(parts[2])) {
-		return false
+	acc := a.account(parts[0])
+	if acc == nil || !hmac.Equal([]byte(sign(acc.key, parts[0]+"|"+parts[1])), []byte(parts[2])) {
+		return nil
 	}
 	exp, err := strconv.ParseInt(parts[1], 10, 64)
-	return err == nil && a.now().Unix() <= exp
+	if err != nil || a.now().Unix() > exp {
+		return nil
+	}
+	return acc
+}
+
+// Who returns the signed-in account of a request, or nil.
+func (a *Auth) Who(r *http.Request) *Account {
+	for _, n := range []string{SecureCookieName, CookieName} {
+		if c, err := r.Cookie(n); err == nil {
+			if acc := a.Valid(c.Value); acc != nil {
+				return acc
+			}
+		}
+	}
+	return nil
 }
 
 // Signed reports whether the request carries a valid session.
-func (a *Auth) Signed(r *http.Request) bool {
-	for _, n := range []string{SecureCookieName, CookieName} {
-		if c, err := r.Cookie(n); err == nil && a.Valid(c.Value) {
-			return true
+func (a *Auth) Signed(r *http.Request) bool { return a.Who(r) != nil }
+
+// IsDemo reports whether the request comes from the demo account.
+func (a *Auth) IsDemo(r *http.Request) bool {
+	acc := a.Who(r)
+	return acc != nil && acc.Demo
+}
+
+// demoCard is what the sign-in card shows: the demo account, only when its
+// password is plain text (a hash cannot be shown).
+func (a *Auth) demoCard() map[string]string {
+	for _, acc := range a.accounts {
+		if acc.Demo && !IsHash(acc.password) {
+			return map[string]string{"user": acc.User, "password": acc.password}
 		}
 	}
-	return false
+	return nil
 }
 
 func (a *Auth) Register(mux *http.ServeMux) {
@@ -160,11 +222,15 @@ func (a *Auth) Register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /api/me", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		if a.Signed(r) {
-			httpx.JSON(w, http.StatusOK, map[string]any{"signed_in": true, "user": a.user})
+		if acc := a.Who(r); acc != nil {
+			httpx.JSON(w, http.StatusOK, map[string]any{"signed_in": true, "user": acc.User, "is_demo": acc.Demo})
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"signed_in": false})
+		out := map[string]any{"signed_in": false}
+		if d := a.demoCard(); d != nil {
+			out["demo"] = d
+		}
+		httpx.JSON(w, http.StatusOK, out)
 	})
 }
 
@@ -184,7 +250,8 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusBadRequest, "INVALID", "invalid request")
 		return
 	}
-	if !a.Check(in.User, in.Password) {
+	acc := a.Check(in.User, in.Password)
+	if acc == nil {
 		n := a.fail(ip)
 		log.Printf("login: failed sign-in from %s (%d of %d)", ip, n, a.opt.BanAfter)
 		time.Sleep(time.Duration(300+100*min(n, 20)) * time.Millisecond)
@@ -192,13 +259,13 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.reset(ip)
-	log.Printf("login: %s signed in from %s", a.user, ip)
+	log.Printf("login: %s signed in from %s", acc.User, ip)
 	name := CookieName
 	if Secure(r) {
 		name = SecureCookieName
 	}
-	http.SetCookie(w, &http.Cookie{Name: name, Value: a.Token(a.now().Add(SessionTTL)), Path: "/", MaxAge: int(SessionTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: Secure(r)})
-	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "user": a.user})
+	http.SetCookie(w, &http.Cookie{Name: name, Value: a.Token(acc, a.now().Add(SessionTTL)), Path: "/", MaxAge: int(SessionTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: Secure(r)})
+	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "user": acc.User})
 }
 
 func Secure(r *http.Request) bool {
@@ -325,11 +392,18 @@ func (a *Auth) saveBansLocked() {
 	}
 }
 
-// Describe is for the start-up log (never the password).
+// Describe is for the start-up log (never a password).
 func (a *Auth) Describe() string {
-	kind := "plain password"
-	if IsHash(a.password) {
-		kind = "bcrypt hash"
+	var out []string
+	for _, acc := range a.accounts {
+		kind := "plain password"
+		if IsHash(acc.password) {
+			kind = "bcrypt hash"
+		}
+		if acc.Demo {
+			kind += ", read-only demo"
+		}
+		out = append(out, acc.User+" ("+kind+")")
 	}
-	return a.user + " (" + kind + ")"
+	return strings.Join(out, ", ")
 }

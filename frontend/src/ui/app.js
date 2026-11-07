@@ -1,5 +1,6 @@
 // The app controller: open documents, the one editor view, saving, autosave,
-// hot exit (session + backups of unsaved edits) and disk-change detection.
+// hot exit (session + backups of unsaved edits, core/store.js), scratch files
+// for new tabs, and disk-change detection.
 // UI pieces (menu, tree, tabs, status bar, panels) talk to it, never to each other.
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Text } from '@codemirror/state';
@@ -8,14 +9,14 @@ import { trimTrailingChanges } from '../editor/lineops.js';
 import { decode, encode, looksBinary, ansiLossy } from '../core/encoding.js';
 import { detect, byNameOf, PLAIN, isMarkdown } from '../core/languages.js';
 import { basename, dirname, extname, join, isInside, pretty, relative, validName } from '../core/paths.js';
-import { TRASH_DIR } from '../core/settings.js';
+import { trashDirOf } from '../core/settings.js';
+import { Store } from '../core/store.js';
+import { resolveTheme, themeIdFor, applyTheme } from '../core/themes.js';
 import { confirm, prompt, sheet, toast, alert } from './dialogs.js';
 import { debounce, h } from './dom.js';
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif', '.svg']);
-const MAX_OPEN = 50 * 1024 * 1024; // refuse beyond this
-const READONLY_ABOVE = 20 * 1024 * 1024; // open read-only beyond this
-const CLOSED_KEEP = 20;
+const MAX_OPEN = 50 * 1024 * 1024; // refuse beyond this (the Rust side and the server agree)
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
@@ -23,6 +24,7 @@ export class App {
   constructor(backend, settings) {
     this.backend = backend;
     this.settings = settings;
+    this.store = new Store(backend, settings);
     this.docs = [];
     this.active = null;
     this.extraRoots = []; // folders opened next to the notes folder (desktop)
@@ -39,6 +41,7 @@ export class App {
     setUpdateHandler((u) => this.onEditorUpdate(u));
     this.view = new EditorView({ parent: h('div.editor-host') });
     settings.onChange((keys) => this.onSettings(keys));
+    matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => { if (this.settings.get('theme') === 'system') this.applyLook(); });
   }
 
   // ── events ───────────────────────────────────────────────
@@ -53,7 +56,8 @@ export class App {
     return out;
   }
   dirty(doc) { return !!doc && doc.kind === 'text' && !doc.state.doc.eq(doc.savedDoc); }
-  displayName(doc) { return doc.path ? basename(doc.path) : doc.untitled; }
+  displayName(doc) { return doc.untitled || basename(doc.path); }
+  isScratch(doc) { return !!doc?.path && this.store.isScratch(doc.path); }
   displayDir(doc) {
     if (!doc.path) return '';
     const d = dirname(doc.path);
@@ -68,18 +72,37 @@ export class App {
   // ── settings ─────────────────────────────────────────────
   onSettings(keys) {
     this.applyLook();
-    if (keys.some((k) => !['theme', 'fontSize', 'mobileFontSize', 'lineHeight'].includes(k))) {
+    const lookOnly = ['theme', 'themeDark', 'themeLight', 'themes', 'windowOpacity', 'fontSize', 'mobileFontSize', 'fontFamily', 'lineHeight'];
+    if (keys.some((k) => !lookOnly.includes(k))) {
       for (const d of this.docs) d.configStale = true;
       if (this.active?.kind === 'text') this.reconfigureActive();
     }
+    this.syncDevice(keys);
     this.emit('settings', keys);
+  }
+
+  // Hands shared settings to the platform: the tray (desktop) and the share
+  // target and lock (Android). keys = what changed (all on start).
+  syncDevice(keys = null) {
+    const be = this.backend;
+    const s = this.settings.values;
+    const has = (...k) => !keys || k.some((x) => keys.includes(x));
+    if (be.setTray && has('keepInTray')) be.setTray(s.keepInTray).catch((e) => { if (s.keepInTray) toast(`Tray: ${e.message}`, { error: true, ms: 6000 }); });
+    if (be.android && has('androidInbox', 'androidLock', 'androidLockAfterMinutes')) {
+      try {
+        be.android.configure({ notesDir: be.notesRoot, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes });
+      } catch (e) { console.warn('android configure', e); }
+    }
   }
 
   applyLook() {
     const s = this.settings.values;
     const root = document.documentElement;
-    if (s.theme === 'system') root.removeAttribute('data-theme'); else root.dataset.theme = s.theme;
+    const theme = resolveTheme(themeIdFor(s), s.themes);
+    applyTheme(root, theme, this.backend.kind === 'desktop' ? s.windowOpacity : 1);
+    this.backend.setWindowTheme?.(theme.mode);
     root.style.setProperty('--ed-font-size', this.fontSize() + 'px');
+    if (s.fontFamily) root.style.setProperty('--ed-font', `${JSON.stringify(s.fontFamily)}, "JetBrains Mono", var(--nss-mono)`); else root.style.removeProperty('--ed-font');
     root.style.setProperty('--ed-line-height', String(s.lineHeight));
     this.view.requestMeasure();
   }
@@ -100,6 +123,7 @@ export class App {
       const wasDirty = d.wasDirty;
       d.wasDirty = this.dirty(d);
       if (wasDirty !== d.wasDirty) this.emit('docs');
+      if (!d.path && !d.readOnly) this.startScratch(d);
       this.scheduleAutosave(d);
       this.scheduleBackup(d);
       this.emit('content', d);
@@ -114,6 +138,27 @@ export class App {
     this.docs.splice(this.active ? this.docs.indexOf(this.active) + 1 : this.docs.length, 0, d);
     this.activate(d, { focus });
     return d;
+  }
+
+  // A new tab becomes a scratch file (app folder/scratch/) on its first edit,
+  // and is then saved automatically like a note. Save as… moves it out.
+  async startScratch(d) {
+    if (d.scratchPending || d.path || this.backend.readOnly || this.backend.notesRoot == null || !d.state.doc.length) return;
+    d.scratchPending = true;
+    try {
+      const path = await this.store.newScratchPath();
+      if (!path || d.path || !this.docs.includes(d)) return;
+      await this.backend.mkdirAll(dirname(path));
+      await this.backend.createFile(path);
+      d.path = path;
+      d.mtime = (await this.backend.stat(path))?.mtime ?? null;
+      this.scheduleAutosave(d);
+      this.emit('docs');
+      this.emit('tree-changed', dirname(path));
+      this.saveSession();
+    } catch (e) {
+      console.warn('scratch file not created', e);
+    } finally { d.scratchPending = false; }
   }
 
   makeTextDoc({ path, untitled, text, encoding, eol, mtime = null, lang = null, readOnly = false, id = uid() }) {
@@ -149,6 +194,12 @@ export class App {
     d.langNameManual = true;
     await this.loadLanguage(d, name === PLAIN ? null : name);
     if (name === PLAIN) { d.langName = PLAIN; this.applyLanguage(d, null); }
+    // a scratch file takes the language's extension, so it opens the same way elsewhere
+    const ext = byNameOf(name)?.extensions?.[0];
+    if (this.isScratch(d) && ext && extname(d.path) !== '.' + ext) {
+      const to = d.path.replace(/\.[^./]*$/, '') + '.' + ext;
+      if (!(await this.backend.stat(to).catch(() => null))) await this.movePath(d.path, to, { keepLanguage: true });
+    }
     this.emit('cursor', d);
     this.emit('docs');
     this.saveSession();
@@ -196,9 +247,10 @@ export class App {
     if (!opts.asText && ext === '.pdf') return { id: uid(), path, kind: 'pdf', bytes: r.bytes, mtime: r.mtime, size: r.size };
     if (!opts.asText && !opts.encoding && looksBinary(r.bytes)) return { id: uid(), path, kind: 'binary', bytes: r.bytes, mtime: r.mtime, size: r.size };
     const { text, encoding, eol } = decode(r.bytes, opts.encoding || null);
-    const readOnly = r.size > READONLY_ABOVE || (this.backend.readOnly ?? false);
+    const big = r.size > this.settings.get('readOnlyAboveMB') * 1048576;
+    const readOnly = big || (this.backend.readOnly ?? false);
     const d = this.makeTextDoc({ path, text, encoding, eol: eol || this.settings.get('newFileEol'), mtime: r.mtime, lang: opts.lang || null, readOnly });
-    if (readOnly && r.size > READONLY_ABOVE) toast('Large file: opened read-only');
+    if (big) toast('Large file: opened read-only');
     return d;
   }
 
@@ -281,6 +333,7 @@ export class App {
   async save(d = this.active, { auto = false, overwrite = false } = {}) {
     if (!d || d.kind !== 'text' || d.readOnly) return false;
     if (!d.path) return auto ? false : this.saveAs(d);
+    if (!auto && this.isScratch(d)) return this.saveAs(d);
     if (!auto) this.tidyBeforeSave(d);
     const snapshot = d.state.doc;
     if (d.encoding === 'ANSI' && ansiLossy(snapshot.toString()) && !auto) {
@@ -294,7 +347,7 @@ export class App {
       d.savedDoc = snapshot;
       d.conflict = null;
       d.wasDirty = this.dirty(d);
-      this.backend.backupDelete(d.id).catch(() => {});
+      this.store.backupDelete(d.id).catch(() => {});
       if (d.path === this.settingsPath) await this.settings.load();
       this.emit('saved', d);
       return true;
@@ -324,13 +377,14 @@ export class App {
 
   async saveAs(d = this.active) {
     if (!d || d.kind !== 'text') return false;
-    const name = d.path ? basename(d.path) : d.untitled.replace(/\s+/g, '-') + '.txt';
+    const scratch = this.isScratch(d) ? d.path : null;
+    const name = d.path && !scratch ? basename(d.path) : (d.untitled || 'untitled').replace(/\s+/g, '-') + (scratch ? extname(scratch) : '.txt');
     let target;
     if (this.backend.pickSavePath && this.backend.canOpenAnywhere) {
-      const base = d.path ? dirname(d.path) : this.backend.notesRoot ?? this.backend.home;
+      const base = d.path && !scratch ? dirname(d.path) : this.backend.notesRoot ?? this.backend.home;
       target = await this.backend.pickSavePath(join(base, name));
     } else {
-      const rel = await prompt('Save as', { label: `Path inside ${this.backend.notesName}`, value: d.path ? relative(d.path, this.backend.notesRoot) : name, ok: 'Save', selectStem: true });
+      const rel = await prompt('Save as', { label: `Path inside ${this.backend.notesName}`, value: d.path && !scratch ? relative(d.path, this.backend.notesRoot) : name, ok: 'Save', selectStem: true });
       if (!rel) return false;
       const clean = rel.trim().replace(/^\/+/, '');
       if (!clean.split('/').every(validName)) { toast('That is not a valid file name', { error: true }); return false; }
@@ -346,9 +400,11 @@ export class App {
     d.path = target;
     d.untitled = null;
     d.mtime = null;
+    const oldUntitled = d.untitled;
     const ok = await this.save(d, { overwrite: true });
-    if (!ok) { d.path = oldPath; return false; }
-    if (!oldPath) this.loadLanguage(d, null);
+    if (!ok) { d.path = oldPath; d.untitled = oldUntitled; return false; }
+    if (scratch && scratch !== target) { await this.backend.remove(scratch).catch(() => {}); this.emit('tree-changed', dirname(scratch)); }
+    if (!oldPath || scratch) this.loadLanguage(d, null);
     this.emit('docs');
     this.emit('tree-changed', dirname(target));
     this.saveSession();
@@ -361,8 +417,11 @@ export class App {
 
   scheduleAutosave(d) {
     const mode = this.settings.get('autosave');
-    if (mode === 'off' || !d.path || d.readOnly) return;
-    if (mode === 'notes' && !this.inNotes(d.path)) return;
+    if (!d.path || d.readOnly) return;
+    if (!this.isScratch(d)) { // scratch files are always saved: they are the backup
+      if (mode === 'off') return;
+      if (mode === 'notes' && !this.inNotes(d.path)) return;
+    }
     clearTimeout(this.autosaveTimers.get(d.id));
     this.autosaveTimers.set(d.id, setTimeout(() => {
       if (this.dirty(d) && this.docs.includes(d) && !d.conflict && !d.saving) this.save(d, { auto: true });
@@ -371,13 +430,13 @@ export class App {
 
   scheduleBackup(d) {
     clearTimeout(this.backupTimers.get(d.id));
-    this.backupTimers.set(d.id, setTimeout(() => this.backupNow(d), 700));
+    this.backupTimers.set(d.id, setTimeout(() => this.backupNow(d), this.settings.get('backupDelayMs')));
   }
 
   backupNow(d) {
     clearTimeout(this.backupTimers.get(d.id));
     if (!this.docs.includes(d) || d.kind !== 'text') return Promise.resolve();
-    return (this.dirty(d) ? this.backend.backupWrite(d.id, this.textOf(d)) : this.backend.backupDelete(d.id)).catch(() => {});
+    return (this.dirty(d) ? this.store.backupWrite(d.id, this.textOf(d)) : this.store.backupDelete(d.id)).catch(() => {});
   }
 
   // ── reload, encoding, line endings ───────────────────────
@@ -392,7 +451,7 @@ export class App {
     const spec = { changes: { from: 0, to: d.state.doc.length, insert: text }, selection: EditorSelection.cursor(Math.min(sel, text.length)), userEvent: 'reload' };
     if (this.active === d) { this.view.dispatch(spec); d.state = this.view.state; } else d.state = d.state.update(spec).state;
     Object.assign(d, { savedDoc: d.state.doc, mtime: r.mtime, encoding: enc, eol: eol || d.eol, conflict: null, wasDirty: false });
-    this.backend.backupDelete(d.id).catch(() => {});
+    this.store.backupDelete(d.id).catch(() => {});
     this.emit('docs');
     this.emit('cursor', d);
     this.emit('content', d);
@@ -428,7 +487,13 @@ export class App {
   // ── closing ──────────────────────────────────────────────
   async closeDoc(d = this.active, { force = false } = {}) {
     if (!d) return true;
-    if (!force && this.dirty(d)) {
+    const scratch = this.isScratch(d);
+    if (scratch && d.kind === 'text' && !force) {
+      // scratch tabs keep their file; an empty one is removed
+      if (this.dirty(d)) await this.save(d, { auto: true });
+      if (!d.state.doc.length) { await this.backend.remove(d.path).catch(() => {}); this.emit('tree-changed', dirname(d.path)); }
+      else toast(`Kept in ${this.backend.notesName}/${relative(dirname(d.path), this.backend.notesRoot)}`, { ms: 2500 });
+    } else if (!force && this.dirty(d)) {
       this.activate(d);
       const v = await confirm('Save changes?', `Save changes to ${this.displayName(d)} before closing?`, { ok: 'Save', cancel: 'Cancel', third: "Don't save" });
       if (v === false) return false;
@@ -436,8 +501,8 @@ export class App {
     }
     clearTimeout(this.autosaveTimers.get(d.id));
     clearTimeout(this.backupTimers.get(d.id));
-    this.backend.backupDelete(d.id).catch(() => {});
-    if (d.path) { this.closed = [d.path, ...this.closed.filter((p) => p !== d.path)].slice(0, CLOSED_KEEP); }
+    this.store.backupDelete(d.id).catch(() => {});
+    if (d.path) { this.closed = [d.path, ...this.closed.filter((p) => p !== d.path)].slice(0, this.settings.get('recentlyClosedKept')); }
     const i = this.docs.indexOf(d);
     this.docs.splice(i, 1);
     if (this.active === d) {
@@ -506,7 +571,7 @@ export class App {
     await this.movePath(path, to);
   }
 
-  async movePath(path, to) {
+  async movePath(path, to, { keepLanguage = false } = {}) {
     try {
       await this.backend.rename(path, to);
     } catch (e) {
@@ -518,7 +583,7 @@ export class App {
         d.path = to + d.path.slice(path.length);
         const st = await this.backend.stat(d.path).catch(() => null);
         if (st) d.mtime = st.mtime;
-        if (d.kind === 'text') this.loadLanguage(d, null);
+        if (d.kind === 'text' && !keepLanguage) this.loadLanguage(d, null);
       }
     }
     this.emit('tree-changed', dirname(path));
@@ -530,7 +595,7 @@ export class App {
   }
 
   async trashPath(path) {
-    const where = this.inNotes(path) ? `${this.backend.notesName}/${TRASH_DIR}` : 'the system trash';
+    const where = this.inNotes(path) ? `${this.backend.notesName}/${trashDirOf(this.backend)}` : 'the system trash';
     if (this.settings.get('confirmDelete') && !(await confirm('Move to trash?', `${basename(path)} goes to ${where}. You can restore it from there.`, { ok: 'Move to trash', danger: true }))) return;
     try {
       await this.backend.trash(path);
@@ -542,7 +607,7 @@ export class App {
 
   async emptyTrash() {
     const days = this.settings.get('trashDays');
-    if (!(await confirm('Empty trash?', `Permanently delete items that have been in ${this.backend.notesName}/${TRASH_DIR} for more than ${days} days?`, { ok: 'Delete', danger: true }))) return;
+    if (!(await confirm('Empty trash?', `Permanently delete items that have been in ${this.backend.notesName}/${trashDirOf(this.backend)} for more than ${days} days?`, { ok: 'Delete', danger: true }))) return;
     try {
       const r = await this.backend.trashPurge(days);
       toast(`Removed ${r.removed} item${r.removed === 1 ? '' : 's'} from trash`);
@@ -605,7 +670,7 @@ export class App {
   }
 
   async writeSession() {
-    try { await this.backend.saveSession(this.sessionData()); } catch (e) { console.warn('session not saved', e); }
+    try { await this.store.saveSession(this.sessionData()); } catch (e) { console.warn('session not saved', e); }
   }
 
   // Writes every pending backup and the session; called before the window closes.
@@ -617,10 +682,10 @@ export class App {
 
   // Step 1 of restoring: layout and folders, before the UI is built.
   async loadSession() {
-    const s = await this.backend.loadSession().catch(() => null);
+    const s = await this.store.loadSession().catch(() => null);
     if (s?.ui && typeof s.ui === 'object') Object.assign(this.ui, s.ui);
     if (Array.isArray(s?.roots)) this.extraRoots = s.roots.filter((p) => typeof p === 'string');
-    if (Array.isArray(s?.closed)) this.closed = s.closed.slice(0, CLOSED_KEEP);
+    if (Array.isArray(s?.closed)) this.closed = s.closed.slice(0, 200);
     this.untitledCounter = s?.untitledCounter || 0;
     this.session = s;
     return s;
@@ -629,10 +694,10 @@ export class App {
   // Step 2: reopen the tabs, with unsaved edits from their backups.
   async restore() {
     const s = this.session;
-    const backups = new Set(await this.backend.backupList().catch(() => []));
+    const backups = new Set(await this.store.backupList().catch(() => []));
     let activeDoc = null;
     for (const t of s?.tabs || []) {
-      const backup = backups.has(t.id) ? await this.backend.backupRead(t.id).catch(() => null) : null;
+      const backup = backups.has(t.id) ? await this.store.backupRead(t.id).catch(() => null) : null;
       let d = null;
       if (t.path) {
         const st = await this.backend.stat(t.path).catch(() => null);
@@ -650,6 +715,7 @@ export class App {
       }
       if (!d) { backups.delete(t.id); continue; }
       d.id = t.id;
+      if (t.untitled && t.path && this.store.isScratch(t.path)) d.untitled = t.untitled;
       if (t.lang) d.langNameManual = true;
       if (backup != null && d.kind === 'text') {
         d.state = d.state.update({ changes: { from: 0, to: d.state.doc.length, insert: backup } }).state;
@@ -663,7 +729,12 @@ export class App {
       this.docs.push(d);
       if (t.id === s.active) activeDoc = d;
     }
-    for (const orphan of backups) this.backend.backupDelete(orphan).catch(() => {});
+    for (const orphan of backups) this.store.backupDelete(orphan).catch(() => {});
+    if (this.store.legacy) { // moved from 0.0.1's data folder: copy the backups over, then forget the old ones
+      await Promise.all(this.docs.filter((d) => this.dirty(d)).map((d) => this.store.backupWrite(d.id, this.textOf(d)).catch(() => {})));
+      await this.store.finishMigration();
+      this.writeSession();
+    }
     this.emit('docs');
     this.emit('roots');
     if (this.docs.length) this.activate(activeDoc || this.docs[0], { focus: true });
@@ -685,7 +756,7 @@ export class App {
     if (!be.setNotesRoot) return;
     const input = h('input', { value: be.notesRoot || be.defaultNotesRoot || '', spellcheck: 'false', autocapitalize: 'off' });
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); input.closest('dialog')?.done(input.value); } });
-    const browse = be.pickFolder && be.kind === 'desktop'
+    const browse = be.pickFolder && (be.kind === 'desktop' || be.kind === 'android')
       ? h('button', { type: 'button', onclick: async () => { const p = await be.pickFolder('Choose your notes folder'); if (p) input.value = p; } }, 'Browse…')
       : null;
     const body = h('div', {},
@@ -693,7 +764,7 @@ export class App {
         ? 'mnemostxt keeps one folder always in the sidebar — your notes. Its settings live there too, in logs/mnemostxt/settings.json, so every device shares them.'
         : 'The notes folder is always in the sidebar and holds the shared settings file.'),
       h('label.f', {}, h('span', {}, 'Notes folder'), h('div.row', {}, input, browse)),
-      be.kind === 'android' ? h('p.muted', {}, 'Android: allow "All files access" for mnemostxt when asked, so it can read a folder like /storage/emulated/0/notes.') : null);
+      be.kind === 'android' ? h('p.muted', {}, 'Android: allow "All files access" for mnemostxt when asked, so it can read a folder like /storage/emulated/0/notes. Browse… opens the system folder picker.') : null);
     const v = await sheet({ title: first ? 'Welcome to mnemostxt' : 'Notes folder', body, actions: first ? [{ label: 'Use this folder', primary: true, run: () => input.value }] : [{ label: 'Cancel' }, { label: 'Use this folder', primary: true, run: () => input.value }] });
     const path = (v || '').trim();
     if (!path) { if (first && !be.notesRoot) return this.chooseNotesRoot(true); return; }
@@ -705,6 +776,7 @@ export class App {
     }
     await this.settings.load();
     this.applyLook();
+    this.syncDevice();
     this.emit('roots');
   }
 }

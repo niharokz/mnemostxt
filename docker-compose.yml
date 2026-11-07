@@ -12,17 +12,27 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       MNEMOSTXT_USER: ${MNEMOSTXT_USER:?set MNEMOSTXT_USER in .env}
-      MNEMOSTXT_PASSWORD: ${MNEMOSTXT_PASSWORD:?set MNEMOSTXT_PASSWORD in .env}
+      # one of the two (the hash wins); the server refuses to start with neither
+      MNEMOSTXT_PASSWORD_HASH: ${MNEMOSTXT_PASSWORD_HASH:-}
+      MNEMOSTXT_PASSWORD: ${MNEMOSTXT_PASSWORD:-}
       MNEMOSTXT_SECRET: ${MNEMOSTXT_SECRET:-}
+      MNEMOSTXT_DEMO_USER: ${MNEMOSTXT_DEMO_USER:-}
+      MNEMOSTXT_DEMO_PASSWORD: ${MNEMOSTXT_DEMO_PASSWORD:-}
+      MNEMOSTXT_APP_DIR: ${MNEMOSTXT_APP_DIR:-logs/mnemostxt}
+      MNEMOSTXT_LANDING: ${MNEMOSTXT_LANDING:-true}
       MNEMOSTXT_NOTES_NAME: ${MNEMOSTXT_NOTES_NAME:-notes}
       MNEMOSTXT_MAX_FILE_MB: ${MNEMOSTXT_MAX_FILE_MB:-20}
       MNEMOSTXT_HIDDEN: ${MNEMOSTXT_HIDDEN:-}
       MNEMOSTXT_BAN_AFTER: ${MNEMOSTXT_BAN_AFTER:-5}
       MNEMOSTXT_BAN_HOURS: ${MNEMOSTXT_BAN_HOURS:-24}
       MNEMOSTXT_BAN_PRIVATE: ${MNEMOSTXT_BAN_PRIVATE:-false}
+      MNEMOSTXT_URL_APK: ${MNEMOSTXT_URL_APK:-}
+      MNEMOSTXT_URL_EXE: ${MNEMOSTXT_URL_EXE:-}
+      MNEMOSTXT_URL_DEB: ${MNEMOSTXT_URL_DEB:-}
+      MNEMOSTXT_URL_SOURCE: ${MNEMOSTXT_URL_SOURCE:-}
     volumes:
       - ${NOTE_PATH:?set NOTE_PATH in .env}:/notes
-      - mnemostxt-state:/state                    # remembered bans
+      - mnemostxt-state:/state                    # remembered bans, the demo's sample copy
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

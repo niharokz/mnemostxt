@@ -1,5 +1,6 @@
 // Status bar: save state, conflicts, cursor position, indentation, encoding,
 // line endings and language — each clickable, like Notepad++/VS Code.
+import { allThemes } from '../core/themes.js';
 import { ENCODINGS } from '../core/encoding.js';
 import { contextMenu } from './dialogs.js';
 import { h } from './dom.js';
@@ -51,7 +52,11 @@ export class StatusBar {
     } else if (d) {
       right.push(this.item(`${(d.size / 1024).toFixed(d.size < 10240 ? 1 : 0)} KB`, { cls: 'muted' }));
     }
-    if (!app.mobile) right.push(this.item(app.settings.get('theme') === 'light' ? 'nss light' : app.settings.get('theme') === 'system' ? 'nss auto' : 'nss dark', { title: 'Theme', onclick: () => this.themeCycle() }));
+    if (!app.mobile) {
+      const id = app.settings.get('theme');
+      const t = allThemes(app.settings.get('themes'))[id];
+      right.push(this.item(id === 'system' ? 'auto theme' : t?.label || id, { title: 'Theme (click for the next one)', onclick: () => this.themeCycle() }));
+    }
     this.left.replaceChildren(...left);
     this.right.replaceChildren(...right);
   }
@@ -92,9 +97,10 @@ export class StatusBar {
     this.popup(e, d.conflictCopies.map((p) => ({ label: `Open ${p.split('/').pop()}`, run: () => this.app.open(p) })));
   }
 
+  // Steps through every theme (built-in, then yours), then "follow system".
   themeCycle() {
-    const order = ['dark', 'light', 'system'];
     const s = this.app.settings;
+    const order = [...Object.keys(allThemes(s.get('themes'))), 'system'];
     s.set({ theme: order[(order.indexOf(s.get('theme')) + 1) % order.length] });
   }
 }

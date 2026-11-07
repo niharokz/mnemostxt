@@ -1,11 +1,11 @@
 // Backend for the web build: the Go server (server/) behind a sign-in. Paths are
 // relative to the server's notes folder ("" is the root); nothing outside it is
-// reachable. Session state and unsaved-edit backups stay in this browser.
+// reachable. Session state and unsaved-edit backups stay in this browser;
+// scratch files (new tabs) go to the server like on every other device.
+// The demo account (MNEMOSTXT_DEMO_USER) sees a read-only sample folder.
 import { BackendError } from './errors.js';
 
 const H = { 'X-Mnemostxt': '1' };
-const LS_SESSION = 'mnemostxt:session';
-const LS_BACKUP = 'mnemostxt:backup:';
 
 async function req(method, url, { body, json, raw } = {}) {
   let res;
@@ -34,6 +34,9 @@ export async function createWebBackend() {
   const api = new URL('../api/', location.href).pathname; // works under /app/
   const me = await req('GET', api + 'me');
   const info = me.signed_in ? await req('GET', api + 'info') : { version: '' };
+  // kept per account, so the demo never sees (or restores) the owner's tabs
+  const LS_SESSION = `mnemostxt:${me.user || ''}:session`;
+  const LS_BACKUP = `mnemostxt:${me.user || ''}:backup:`;
 
   const be = {
     kind: 'web',
@@ -41,6 +44,11 @@ export async function createWebBackend() {
     version: info.version,
     signedIn: !!me.signed_in,
     user: me.user,
+    demoUser: me.demo || null, // { user, password } when the server offers a demo (sign-in card)
+    readOnly: !!info.read_only,
+    isDemo: !!info.demo,
+    appDir: info.app_dir,
+    deviceName: 'web',
     home: null,
     notesRoot: '',
     notesName: info.notes_name || 'notes',
@@ -61,12 +69,14 @@ export async function createWebBackend() {
     mkdirAll: (path) => req('POST', `${api}mkdir?path=${q(path)}`),
     createFile: (path) => req('POST', `${api}create?path=${q(path)}`),
     rename: (from, to) => req('POST', api + 'rename', { json: { from, to } }),
+    remove: (path) => req('DELETE', `${api}file?path=${q(path)}`),
     trash: (path) => req('POST', `${api}trash?path=${q(path)}`),
     trashPurge: (days) => req('POST', `${api}trash/purge?days=${days}`),
     search: (_roots, query, o) =>
       req('GET', `${api}search?q=${q(query)}&regex=${o.regex ? 1 : 0}&case=${o.caseSensitive ? 1 : 0}&max=${o.max || 2000}`),
 
-    loadSession: async () => { try { return JSON.parse(localStorage.getItem(LS_SESSION)); } catch { return null; } },
+    // (0.0.1 kept one unnamed session: the owner takes it over once)
+    loadSession: async () => { try { return JSON.parse(localStorage.getItem(LS_SESSION) ?? (be.isDemo ? null : localStorage.getItem('mnemostxt:session'))); } catch { return null; } },
     saveSession: async (obj) => { try { localStorage.setItem(LS_SESSION, JSON.stringify(obj)); } catch { /* storage full or blocked */ } },
     backupWrite: async (id, text) => { try { localStorage.setItem(LS_BACKUP + id, text); } catch { /* storage full */ } },
     backupRead: async (id) => { try { return localStorage.getItem(LS_BACKUP + id); } catch { return null; } },

@@ -2,7 +2,9 @@
 // relative to the root and is checked twice: lexically (no "..", no absolute
 // paths) and after resolving symlinks (it must still be inside the root).
 // Behaviour matches the desktop app (app/src/files.rs): atomic writes with a
-// modification-time check, and the same trash (logs/mnemostxt/trash) and ledger.
+// modification-time check, and the same trash (<app folder>/trash, default
+// logs/mnemostxt/trash) and ledger. A read-only vault (the demo) refuses every
+// change with DENIED.
 package vault
 
 import (
@@ -25,15 +27,26 @@ import (
 )
 
 const (
-	AppDir   = "logs/mnemostxt" // the app's folder inside the notes folder (settings.json too)
-	TrashDir = AppDir + "/trash"
-	Ledger   = ".mnemostxt-trash.tsv"
+	DefaultAppDir = "logs/mnemostxt" // the app's folder inside the notes folder (settings.json too)
+	Ledger        = ".mnemostxt-trash.tsv"
 )
 
 type Vault struct {
-	Root    string // absolute, symlinks resolved
-	MaxSize int64
-	Hidden  map[string]bool // skipped by search
+	Root     string // absolute, symlinks resolved
+	MaxSize  int64
+	Hidden   map[string]bool // skipped by search
+	App      string          // app folder, relative (MNEMOSTXT_APP_DIR)
+	ReadOnly bool            // the demo: nothing may change
+}
+
+// TrashDir is <app folder>/trash, relative to the root.
+func (v *Vault) TrashDir() string { return v.App + "/trash" }
+
+func (v *Vault) denyWrite() error {
+	if v.ReadOnly {
+		return httpx.Errorf(http.StatusForbidden, "DENIED", "the demo is read-only")
+	}
+	return nil
 }
 
 func New(root string, maxSize int64, hidden []string) (*Vault, error) {
@@ -53,7 +66,7 @@ func New(root string, maxSize int64, hidden []string) (*Vault, error) {
 	for _, x := range hidden {
 		h[x] = true
 	}
-	return &Vault{Root: real, MaxSize: maxSize, Hidden: h}, nil
+	return &Vault{Root: real, MaxSize: maxSize, Hidden: h, App: DefaultAppDir}, nil
 }
 
 type Entry struct {
@@ -191,6 +204,9 @@ func (v *Vault) Read(rel string) ([]byte, int64, error) {
 // Write replaces the file atomically. With expect >= 0 it refuses (CONFLICT)
 // when the file on disk has another modification time.
 func (v *Vault) Write(rel string, data []byte, expect int64) (int64, error) {
+	if err := v.denyWrite(); err != nil {
+		return 0, err
+	}
 	p, c, err := v.Abs(rel)
 	if err != nil {
 		return 0, err
@@ -249,6 +265,9 @@ func (v *Vault) Write(rel string, data []byte, expect int64) (int64, error) {
 }
 
 func (v *Vault) MkdirAll(rel string) error {
+	if err := v.denyWrite(); err != nil {
+		return err
+	}
 	p, c, err := v.Abs(rel)
 	if err != nil {
 		return err
@@ -257,6 +276,9 @@ func (v *Vault) MkdirAll(rel string) error {
 }
 
 func (v *Vault) Create(rel string) (int64, error) {
+	if err := v.denyWrite(); err != nil {
+		return 0, err
+	}
 	p, c, err := v.Abs(rel)
 	if err != nil {
 		return 0, err
@@ -271,6 +293,9 @@ func (v *Vault) Create(rel string) (int64, error) {
 }
 
 func (v *Vault) Rename(from, to string) error {
+	if err := v.denyWrite(); err != nil {
+		return err
+	}
 	pf, cf, err := v.Abs(from)
 	if err != nil {
 		return err
@@ -295,20 +320,64 @@ func (v *Vault) Rename(from, to string) error {
 }
 
 // Trash moves an item into logs/mnemostxt/trash/ and records it in the ledger.
-func (v *Vault) Trash(rel string) error {
+// Remove deletes one file inside the app folder (an emptied scratch file).
+// Notes themselves only ever go to the trash.
+func (v *Vault) Remove(rel string) error {
+	if err := v.denyWrite(); err != nil {
+		return err
+	}
 	p, c, err := v.Abs(rel)
 	if err != nil {
 		return err
 	}
-	if c == "" || c == TrashDir || strings.HasPrefix(c, TrashDir+"/") {
+	if !strings.HasPrefix(c, v.App+"/") {
+		return httpx.Errorf(http.StatusForbidden, "DENIED", "%s is not in the app folder", c)
+	}
+	st, err := os.Lstat(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return ioErr(err, c)
+	}
+	if st.IsDir() {
+		return httpx.Errorf(http.StatusBadRequest, "INVALID", "%s is a folder", c)
+	}
+	return ioErr(os.Remove(p), c)
+}
+
+// ValidAppDir checks MNEMOSTXT_APP_DIR: relative, plain names, no "..".
+func ValidAppDir(rel string) (string, error) {
+	c := strings.Trim(strings.TrimSpace(rel), "/")
+	ok := c != "" && len(c) <= 200
+	for _, part := range strings.Split(c, "/") {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, `\:*?"<>|`) {
+			ok = false
+		}
+	}
+	if !ok {
+		return "", fmt.Errorf("%q is not a valid app folder (use names like logs/mnemostxt)", rel)
+	}
+	return c, nil
+}
+
+func (v *Vault) Trash(rel string) error {
+	if err := v.denyWrite(); err != nil {
+		return err
+	}
+	p, c, err := v.Abs(rel)
+	if err != nil {
+		return err
+	}
+	if c == "" || c == v.TrashDir() || strings.HasPrefix(c, v.TrashDir()+"/") {
 		return httpx.Errorf(http.StatusBadRequest, "INVALID", "cannot trash the notes folder or the trash itself")
 	}
 	if _, err := os.Lstat(p); err != nil {
 		return ioErr(err, c)
 	}
-	trash := filepath.Join(v.Root, filepath.FromSlash(TrashDir))
+	trash := filepath.Join(v.Root, filepath.FromSlash(v.TrashDir()))
 	if err := os.MkdirAll(trash, 0o755); err != nil {
-		return ioErr(err, TrashDir)
+		return ioErr(err, v.TrashDir())
 	}
 	name := filepath.Base(p)
 	dest := filepath.Join(trash, name)
@@ -342,7 +411,10 @@ type PurgeResult struct {
 // Purge deletes trash items older than days (ledger time, else mtime).
 // The only place the web app deletes anything.
 func (v *Vault) Purge(days int, now time.Time) (PurgeResult, error) {
-	trash := filepath.Join(v.Root, filepath.FromSlash(TrashDir))
+	if err := v.denyWrite(); err != nil {
+		return PurgeResult{}, err
+	}
+	trash := filepath.Join(v.Root, filepath.FromSlash(v.TrashDir()))
 	ledgerPath := filepath.Join(trash, Ledger)
 	when := map[string]int64{}
 	var lines []string
@@ -440,7 +512,7 @@ func (v *Vault) Search(query string, isRegex, caseSensitive bool, max int) ([]Hi
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() && p == filepath.Join(v.Root, filepath.FromSlash(AppDir)) {
+		if d.IsDir() && p == filepath.Join(v.Root, filepath.FromSlash(v.App)) {
 			return filepath.SkipDir // settings and trash are not searched
 		}
 		if p != v.Root && v.Hidden[d.Name()] {

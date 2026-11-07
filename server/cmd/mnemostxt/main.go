@@ -11,10 +11,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"gitlab.com/niharokz/mnemostxt/server/internal/config"
 	"gitlab.com/niharokz/mnemostxt/server/internal/server"
 	"gitlab.com/niharokz/mnemostxt/server/internal/vault"
+	"gitlab.com/niharokz/mnemostxt/server/web"
 )
 
 // version is set at build time: -ldflags "-X main.version=$(cat VERSION)".
@@ -58,6 +61,9 @@ func serve() {
 	if err != nil {
 		log.Fatalf("notes: %v", err)
 	}
+	if v.App, err = vault.ValidAppDir(cfg.AppDir); err != nil {
+		log.Fatalf("config: MNEMOSTXT_APP_DIR: %v", err)
+	}
 	state := cfg.State
 	if f, err := os.CreateTemp(state, ".probe"); err == nil {
 		f.Close()
@@ -66,13 +72,20 @@ func serve() {
 		log.Printf("state: %s is not writable (%v) — bans are kept in memory only", state, err)
 		state = ""
 	}
+	var demo *vault.Vault
+	if cfg.DemoUser != "" {
+		if demo, err = demoVault(state, cfg); err != nil {
+			log.Printf("demo: disabled (%v)", err)
+			cfg.DemoUser, cfg.DemoPass = "", ""
+		}
+	}
 	a := auth.New(auth.Options{
-		User: cfg.User, Password: cfg.Password, Secret: cfg.Secret,
+		User: cfg.User, Password: cfg.Password, DemoUser: cfg.DemoUser, DemoPassword: cfg.DemoPass, Secret: cfg.Secret,
 		BanAfter: cfg.BanAfter, BanFor: time.Duration(cfg.BanHours) * time.Hour, BanPrivate: cfg.BanPrivate, StateDir: state,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(cfg, a, v, version),
+		Handler:           server.New(cfg, a, v, demo, version),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      60 * time.Second,
@@ -92,6 +105,36 @@ func serve() {
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 	log.Printf("stopped")
+}
+
+// demoVault copies the built-in sample notes (web/demo) to a fresh folder and
+// opens it read-only. It is rebuilt on every start, so it never drifts.
+func demoVault(state string, cfg *config.Config) (*vault.Vault, error) {
+	var dir string
+	var err error
+	if state != "" {
+		dir = filepath.Join(state, "demo-notes")
+		err = os.RemoveAll(dir)
+		if err == nil {
+			err = os.MkdirAll(dir, 0o755)
+		}
+	} else {
+		dir, err = os.MkdirTemp("", "mnemostxt-demo-")
+	}
+	if err != nil {
+		return nil, err
+	}
+	src, _ := fs.Sub(web.Demo, "demo")
+	if err := os.CopyFS(dir, src); err != nil {
+		return nil, err
+	}
+	d, err := vault.New(dir, int64(cfg.MaxFileMB)<<20, cfg.Hidden)
+	if err != nil {
+		return nil, err
+	}
+	d.App = vault.DefaultAppDir
+	d.ReadOnly = true
+	return d, nil
 }
 
 func health() {

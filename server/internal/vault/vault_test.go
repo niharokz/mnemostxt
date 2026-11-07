@@ -109,7 +109,7 @@ func TestCreateRenameTrashPurge(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, n := range []string{"b.md", "b (1).md"} {
-		if _, err := os.Stat(filepath.Join(v.Root, filepath.FromSlash(TrashDir), n)); err != nil {
+		if _, err := os.Stat(filepath.Join(v.Root, filepath.FromSlash(v.TrashDir()), n)); err != nil {
 			t.Fatalf("%s not in trash", n)
 		}
 	}
@@ -146,5 +146,52 @@ func TestSearch(t *testing.T) {
 	}
 	if _, err := v.Search("(", true, false, 10); code(err) != "INVALID" {
 		t.Fatal("bad regex accepted")
+	}
+}
+
+func TestRemoveOnlyInAppDir(t *testing.T) {
+	v := newVault(t)
+	v.App = "logs/app"
+	_ = v.MkdirAll("logs/app/scratch")
+	_, _ = v.Write("logs/app/scratch/s.txt", []byte("x"), -1)
+	_, _ = v.Write("note.md", []byte("x"), -1)
+	if err := v.Remove("logs/app/scratch/s.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := v.Stat("logs/app/scratch/s.txt"); st != nil {
+		t.Fatal("not removed")
+	}
+	if err := v.Remove("note.md"); code(err) != "DENIED" {
+		t.Fatalf("removed a note: %v", err)
+	}
+	if err := v.Remove("logs/app/scratch"); code(err) != "INVALID" {
+		t.Fatalf("removed a folder: %v", err)
+	}
+	if err := v.Remove("logs/app/../../note.md"); err == nil {
+		t.Fatal("escaped")
+	}
+	if _, err := ValidAppDir("../x"); err == nil {
+		t.Fatal("bad app dir accepted")
+	}
+	if c, _ := ValidAppDir("/logs/x/"); c != "logs/x" {
+		t.Fatal(c)
+	}
+}
+
+func TestReadOnly(t *testing.T) {
+	v := newVault(t)
+	_, _ = v.Write("a.md", []byte("x"), -1)
+	v.ReadOnly = true
+	if _, err := v.Write("a.md", []byte("y"), -1); code(err) != "DENIED" {
+		t.Fatal("write allowed")
+	}
+	if err := v.Trash("a.md"); code(err) != "DENIED" {
+		t.Fatal("trash allowed")
+	}
+	if err := v.Rename("a.md", "b.md"); code(err) != "DENIED" {
+		t.Fatal("rename allowed")
+	}
+	if b, _, err := v.Read("a.md"); err != nil || string(b) != "x" {
+		t.Fatal("read failed")
 	}
 }

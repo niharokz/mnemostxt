@@ -10,7 +10,7 @@ import { foldAll, unfoldAll, foldCode, unfoldCode } from '@codemirror/language';
 import { startCompletion } from '@codemirror/autocomplete';
 import { toggleBookmark, nextBookmark, prevBookmark, clearBookmarks } from '../editor/bookmarks.js';
 import { applyLines, applyText, changeCase, caseOps, transforms, joinLines, cutLine, tabsToSpaces, leadingSpacesToTabs } from '../editor/lineops.js';
-import { comboOf, normalizeCombo } from '../core/keys.js';
+import { comboOf, normalizeCombo, applyKeybindings } from '../core/keys.js';
 import { dialogOpen } from './dialogs.js';
 
 export function buildCommands(app, ui) {
@@ -22,6 +22,7 @@ export function buildCommands(app, ui) {
     { id: 'file.new', label: 'New', keys: ['Ctrl+N'], scope: 'app', run: () => app.newDoc() },
     { id: 'file.open', label: 'Open file…', keys: ['Ctrl+O'], scope: 'app', run: () => ui.openFiles(), when: () => !!app.backend.pickFiles && app.backend.canOpenAnywhere },
     { id: 'file.openFolder', label: 'Open folder…', keys: [], scope: 'app', run: () => ui.openFolder(), when: () => !!app.backend.pickFolder && app.backend.canOpenAnywhere },
+    { id: 'file.scratch', label: 'Scratch folder', keys: [], scope: 'app', run: () => ui.revealScratch(), when: () => app.backend.notesRoot != null },
     { id: 'file.reopen', label: 'Reopen closed file', keys: ['Ctrl+Shift+T'], scope: 'app', run: () => app.reopenClosed() },
     { id: 'file.save', label: 'Save', keys: ['Ctrl+S'], scope: 'app', run: () => app.save() },
     { id: 'file.saveAs', label: 'Save as…', keys: ['Ctrl+Alt+S'], scope: 'app', run: () => app.saveAs() },
@@ -33,7 +34,7 @@ export function buildCommands(app, ui) {
     { id: 'file.closeAll', label: 'Close all', keys: ['Ctrl+Shift+W'], scope: 'app', run: () => app.closeAll() },
     { id: 'file.closeOthers', label: 'Close all but this', keys: [], scope: 'app', run: () => app.closeOthers() },
     { id: 'file.print', label: 'Print…', keys: ['Ctrl+P'], scope: 'app', run: () => ui.print(), when: () => app.backend.kind !== 'android' },
-    { id: 'file.exit', label: 'Exit', keys: ['Alt+F4'], scope: 'app', run: () => app.backend.quit?.(), when: () => desktop, passive: true },
+    { id: 'file.exit', label: 'Exit', keys: ['Alt+F4'], scope: 'app', run: async () => { await app.flush(); app.backend.quit?.(); }, when: () => desktop, passive: true },
     { id: 'tab.next', label: 'Next tab', keys: ['Ctrl+Tab', 'Ctrl+PageDown'], scope: 'app', run: () => app.nextTab(1) },
     { id: 'tab.prev', label: 'Previous tab', keys: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'], scope: 'app', run: () => app.nextTab(-1) },
 
@@ -110,9 +111,7 @@ export function buildCommands(app, ui) {
     { id: 'view.fold', label: 'Fold current level', keys: ['Ctrl+Alt+F'], run: ed(foldCode) },
     { id: 'view.unfold', label: 'Unfold current level', keys: ['Ctrl+Alt+Shift+F'], run: ed(unfoldCode) },
     { id: 'view.fullscreen', label: 'Full screen', keys: ['F11'], scope: 'app', run: () => app.backend.toggleFullscreen?.(), when: () => app.backend.kind !== 'android' },
-    { id: 'view.themeDark', label: 'nss dark', keys: [], scope: 'app', run: () => app.settings.set({ theme: 'dark' }), checked: () => app.settings.get('theme') === 'dark' },
-    { id: 'view.themeLight', label: 'nss light', keys: [], scope: 'app', run: () => app.settings.set({ theme: 'light' }), checked: () => app.settings.get('theme') === 'light' },
-    { id: 'view.themeSystem', label: 'Follow system', keys: [], scope: 'app', run: () => app.settings.set({ theme: 'system' }), checked: () => app.settings.get('theme') === 'system' },
+    { id: 'view.opacity', label: 'Window opacity…', keys: [], scope: 'app', run: () => ui.showSettings('appearance'), when: () => desktop },
 
     // Settings and help
     { id: 'settings.open', label: 'Preferences…', keys: ['Ctrl+,'], scope: 'app', run: () => ui.showSettings() },
@@ -123,14 +122,20 @@ export function buildCommands(app, ui) {
     { id: 'help.about', label: 'About mnemostxt', keys: [], scope: 'app', run: () => ui.showAbout() },
     { id: 'web.logout', label: 'Sign out', keys: [], scope: 'app', run: () => ui.logout(), when: () => app.backend.kind === 'web' },
   ];
-  for (const c of list) { c.scope ||= 'editor'; c.keys = c.keys.map(normalizeCombo); }
+  for (const c of list) { c.scope ||= 'editor'; c.keys = c.keys.map(normalizeCombo); c.defaultKeys = c.keys; c.defaultPassive = !!c.passive; }
+  applyKeybindings(list, app.settings.get('keybindings'));
   return list;
 }
 
 // Installs the capture-phase key handler. Returns the lookup used by menus.
 export function installKeys(commands, app) {
   const byKey = new Map();
-  for (const c of commands) for (const k of c.keys) if (!c.passive) byKey.set(k, c);
+  const index = () => {
+    byKey.clear();
+    for (const c of commands) for (const k of c.keys) if (!c.passive) byKey.set(k, c);
+  };
+  index();
+  app.settings.onChange((keys) => { if (keys.includes('keybindings')) { applyKeybindings(commands, app.settings.get('keybindings')); index(); } });
   const byId = new Map(commands.map((c) => [c.id, c]));
 
   addEventListener('keydown', (e) => {
