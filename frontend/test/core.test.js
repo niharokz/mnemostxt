@@ -125,3 +125,17 @@ test('keybinding overrides', () => {
   assert.deepEqual(cmds[0].keys, ['Ctrl+D']);
   assert.equal(cmds[1].passive, true);
 });
+
+test('csv', async () => {
+  const { parse, detectDelimiter, asNumber, isTable } = await import('../src/core/csv.js');
+  assert.deepEqual(parse('a,b\n1,"x, ""y"""\n"multi\nline",3\n'), [['a', 'b'], ['1', 'x, "y"'], ['multi\nline', '3']]);
+  assert.deepEqual(parse('a;b\r\n1;2', ';'), [['a', 'b'], ['1', '2']]);
+  assert.deepEqual(parse('﻿a,,c'), [['a', '', 'c']]);
+  assert.equal(detectDelimiter('x.csv', 'a;b;c\n1;2;3\n'), ';');
+  assert.equal(detectDelimiter('x.csv', 'a,b\n"1;2",3\n'), ',');
+  assert.equal(detectDelimiter('x.tsv', 'a,b'), '\t');
+  assert.equal(asNumber('1,234.5'), 1234.5);
+  assert.equal(asNumber('12%'), 12);
+  assert.equal(asNumber('12a'), null);
+  assert.ok(isTable('Data.CSV') && !isTable('a.md'));
+});

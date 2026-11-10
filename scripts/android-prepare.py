@@ -13,6 +13,7 @@ git. This script creates it when missing and applies mnemostxt's changes:
   2d. the home-screen widgets (0.0.3): Kotlin in app/android/*.kt, resources
       in app/android/res/ (layouts, widget infos, background), and their
       receivers, list service, settings and capture activities in the manifest
+  2e. the name people see: MnemoTXT (strings.xml, share label)
   2b. the Gradle task that calls back into the Tauri CLI: point it at the real
       CLI file (started as `node <file>`, Tauri records just "tauri")
   3. the launcher icons from app/icons/android
@@ -85,7 +86,7 @@ SHARE = f"""
         <activity
             android:name=".ShareActivity"
             android:exported="true"
-            android:label="Save to mnemostxt"
+            android:label="Save to MnemoTXT"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
@@ -204,6 +205,25 @@ def widgets():
     if changed:
         p.write_text(s)
         print("android-prepare: widgets added to the manifest")
+
+
+APP_NAME = "MnemoTXT"  # the name people see (frontend/src/core/brand.js)
+
+
+def app_name():
+    """The launcher and share-menu names: MnemoTXT (the package id stays ar.nih.mnemostxt)."""
+    res = GEN / "app" / "src" / "main" / "res" / "values" / "strings.xml"
+    if res.exists():
+        s = res.read_text()
+        s2 = re.sub(r'(<string name="(?:app_name|main_activity_title)">)[^<]*(</string>)', rf"\g<1>{APP_NAME}\g<2>", s)
+        if s2 != s:
+            res.write_text(s2)
+            print(f"android-prepare: app name {APP_NAME}")
+    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
+    m = p.read_text()
+    m2 = m.replace('android:label="Save to mnemostxt"', f'android:label="Save to {APP_NAME}"')
+    if m2 != m:
+        p.write_text(m2)
 
 
 def check_manifest():
@@ -351,6 +371,7 @@ if __name__ == "__main__":
     manifest()
     share_target()
     widgets()
+    app_name()
     check_manifest()
     activity()
     resources()

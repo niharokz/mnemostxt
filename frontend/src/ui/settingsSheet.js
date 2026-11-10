@@ -10,6 +10,7 @@ import { h } from './dom.js';
 import { allThemes, resolveTheme, themeIdFor, COLOR_GROUPS, COLOR_LABELS, hexOrNull, BUILTIN } from '../core/themes.js';
 import { appDirOf, DEFAULT_APP_DIR } from '../core/settings.js';
 import { normalizeCombo } from '../core/keys.js';
+import { APP_NAME } from '../core/brand.js';
 
 const SECTIONS = [
   ['appearance', 'Appearance'],
@@ -208,7 +209,7 @@ export function showSettings(app, ui, first = 'appearance') {
       out.push(h('h3', {}, 'Desktop'),
         sw('keepInTray', 'Keep running in the tray', 'Closing the window hides it; files then open instantly. Quit from the tray icon or File → Exit. Shared by all desktops; Linux needs libayatana-appindicator3-1.'),
         h('p.muted', {}, be.platform === 'windows'
-          ? 'Open with: right-click a .txt or .md file → Open with → mnemostxt (the installer registers it).'
+          ? `Open with: right-click a .txt or .md file → Open with → ${APP_NAME} (the installer registers it).`
           : 'From a terminal: mnemostxt file.txt, or add  alias m=mnemostxt  to ~/.bashrc and use  m file.txt.'));
     }
     if (be.kind === 'android' && be.android) {
@@ -217,15 +218,15 @@ export function showSettings(app, ui, first = 'appearance') {
       a.hasAllFilesAccess().then((ok) => { access.textContent = ok ? 'Allowed' : 'Not allowed'; access.className = ok ? 'ok' : 'bad'; });
       out.push(h('h3', {}, 'Android'),
         row('All files access', h('div.row', {}, access, h('button', { type: 'button', onclick: () => a.openAllFilesSettings() }, 'Open system settings')), 'Needed to read and write your notes folder in shared storage'),
-        row('Share to mnemostxt saves in', text('androidInbox', { pattern: /^[\w .-]+(\/[\w .-]+)*$/ }), `Inside ${be.notesName}. Shared text becomes <date>_<time>.md; shared files keep their names.`),
-        sw('androidLock', 'Lock with fingerprint, face or screen lock', 'Uses the phone\'s own lock; nothing is stored by mnemostxt', async (on) => {
+        row(`Share to ${APP_NAME} saves in`, text('androidInbox', { pattern: /^[\w .-]+(\/[\w .-]+)*$/ }), `Inside ${be.notesName}. Shared text becomes <date>_<time>.md; shared files keep their names.`),
+        sw('androidLock', 'Lock with fingerprint, face or screen lock', `Uses the phone's own lock; nothing is stored by ${APP_NAME}`, async (on) => {
           if (on && !(await a.lockAvailable())) { s.set({ androidLock: false }); alert('No screen lock', 'Set a screen lock (PIN, pattern or password) in the phone settings first.'); }
         }),
         row('Lock after (minutes in background)', num('androidLockAfterMinutes', 0, 1440), '0 = every time you come back'),
         row('App permissions', h('button', { type: 'button', onclick: () => a.openAppSettings() }, 'Open app info')),
-        h('p.muted', {}, 'Widgets: long-press the home screen → Widgets → mnemostxt. Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2) and Quick capture (4×1); long-press a widget (or tap its title) for its theme, opacity, text size, font and folder or note.'));
+        h('p.muted', {}, `Widgets: long-press the home screen → Widgets → ${APP_NAME}. Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2) and Quick capture (4×1); long-press a widget (or tap its title) for its theme, opacity, text size, font and folder or note.`));
     }
-    out.push(h('p.muted.set-foot', {}, `Settings: ${be.notesName}/${appDirOf(be)}/settings.json · mnemostxt ${be.version}`));
+    out.push(h('p.muted.set-foot', {}, `Settings: ${be.notesName}/${appDirOf(be)}/settings.json · ${APP_NAME} ${be.version}`));
     return out;
   }
 

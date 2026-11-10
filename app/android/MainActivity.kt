@@ -115,7 +115,7 @@ class MainActivity : TauriActivity() {
   private fun lock() {
     if (lockCover == null) {
       val label = TextView(this).apply {
-        text = "mnemostxt is locked"
+        text = "MnemoTXT is locked"
         setTextColor(Color.parseColor("#E6ECEC"))
         textSize = 18f
         gravity = Gravity.CENTER
@@ -164,7 +164,7 @@ class MainActivity : TauriActivity() {
       }
     })
     val info = BiometricPrompt.PromptInfo.Builder()
-      .setTitle("Unlock mnemostxt")
+      .setTitle("Unlock MnemoTXT")
       .setAllowedAuthenticators(authenticators)
       .build()
     prompt.authenticate(info)

@@ -9,6 +9,22 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Added
+
+- **View** button for Markdown and CSV/TSV files (top bar, phone: the eye; or
+  Ctrl+Shift+V). Markdown opens as a clean reading view; CSV and TSV as a table
+  with a sticky header, row numbers, numbers aligned right, click a column to
+  sort, and a filter box. Edit (or a double-click) goes back to the editor.
+  Each tab remembers its mode across restarts.
+
+### Changed
+
+- The app is called **MnemoTXT** everywhere you see its name: window title,
+  menus, About, sign-in and About pages, the Android launcher, share menu and
+  widgets, the Windows Start menu and "Open with", the Linux menu and tray.
+  The command, package, repository, folders and settings keep the lowercase
+  `mnemostxt`, so installs upgrade in place.
+
 ## [0.0.3] - 2026-11-07
 
 ### Added

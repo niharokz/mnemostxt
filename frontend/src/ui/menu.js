@@ -20,7 +20,7 @@ export function menuModel(app, ui) {
       '-', 'edit.indent', 'edit.outdent', 'edit.complete', 'edit.dateTime', '-', 'edit.readOnly']),
     sub('Search', ['search.find', 'search.replace', 'search.next', 'search.prev', '-', 'search.inFiles', '-', 'search.goto', 'search.brace', 'search.selectBrace', '-',
       sub('Bookmark', ['bookmark.toggle', 'bookmark.next', 'bookmark.prev', 'bookmark.clear'])]),
-    sub('View', ['view.menu', 'view.sidebar', 'view.preview', '-', 'view.wrap', 'view.whitespace', 'view.lineNumbers', 'view.minimap', '-',
+    sub('View', ['view.menu', 'view.sidebar', 'view.read', 'view.preview', '-', 'view.wrap', 'view.whitespace', 'view.lineNumbers', 'view.minimap', '-',
       'view.zoomIn', 'view.zoomOut', 'view.zoomReset', '-', 'view.foldAll', 'view.unfoldAll', 'view.fold', 'view.unfold', '-',
       { label: 'Theme', items: () => themeItems(app) }, 'view.opacity', 'view.fullscreen']),
     { label: 'Encoding', items: () => encodingItems(app) },

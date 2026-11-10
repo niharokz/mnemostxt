@@ -78,6 +78,7 @@ Mouse: **Alt+drag** selects a column · **Ctrl+click** adds a cursor ·
 | Action | Keys |
 |---|---|
 | Sidebar | `Ctrl+Shift+E` |
+| View / Edit (markdown, CSV) | `Ctrl+Shift+V` |
 | Markdown preview | `Ctrl+Shift+M` |
 | Word wrap | `Alt+Z` |
 | Zoom in | `Ctrl+=` · `Ctrl+Num+` |

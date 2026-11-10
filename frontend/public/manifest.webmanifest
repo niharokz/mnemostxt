@@ -1,6 +1,6 @@
 {
-  "name": "mnemostxt",
-  "short_name": "mnemostxt",
+  "name": "MnemoTXT",
+  "short_name": "MnemoTXT",
   "description": "Just a notepad for your notes folder.",
   "start_url": "./",
   "scope": "./",

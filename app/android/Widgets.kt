@@ -272,7 +272,7 @@ abstract class MnemostxtWidget : AppWidgetProvider() {
     v.setTextColor(R.id.mnemostxt_w_empty, p.muted)
     v.setTextViewTextSize(R.id.mnemostxt_w_title, TypedValue.COMPLEX_UNIT_SP, Widgets.textSize(ctx, id) + 1)
     v.setTextViewText(R.id.mnemostxt_w_empty, when {
-      notes == null -> "Open mnemostxt once to choose your notes folder"
+      notes == null -> "Open MnemoTXT once to choose your notes folder"
       Widgets.hidden(ctx, id) -> "🔒 Locked — tap to open"
       kind == "pinned" && openPath == null -> "Long-press → settings to choose a note"
       else -> "Nothing here yet"

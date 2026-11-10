@@ -1,8 +1,10 @@
 <p align="center"><img src="assets/logo/mnemostxt.svg" width="96" alt=""></p>
 
-<h1 align="center">mnemostxt</h1>
+<h1 align="center">MnemoTXT</h1>
 
 <p align="center"><b>Just a notepad.</b> Tabs, a folder sidebar, Notepad++ keys and syntax highlighting for 140+ languages — on Linux, Windows, Android and the web.</p>
+
+<p align="center"><sub>The app is called <b>MnemoTXT</b>; the command, package, repository and folders stay lowercase: <code>mnemostxt</code>.</sub></p>
 
 <p align="center">
   <a href="https://gitlab.com/niharokz/mnemostxt/-/pipelines"><img src="https://gitlab.com/niharokz/mnemostxt/badges/main/pipeline.svg" alt="pipeline"></a>
@@ -35,7 +37,9 @@
 - **Themes**: nss dark and light, Solarized, Nord, Gruvbox, Dracula- and
   Monokai-style, High contrast — or your own colours (Preferences → Appearance).
 - **Encodings and line endings**: UTF-8, UTF-8 BOM, UTF-16 LE/BE, ANSI; LF, CRLF, CR.
-- **Markdown preview**, and a viewer for images and PDFs.
+- **View** button for Markdown and CSV/TSV (Ctrl+Shift+V): a clean reading
+  view, or a sortable, filterable table. Markdown preview beside the editor
+  (Ctrl+Shift+M), and a viewer for images and PDFs.
 - **Never loses work.** Unsaved edits survive closing (or crashing); a file
   changed by another program or device is never overwritten silently;
   Syncthing conflict copies are flagged.

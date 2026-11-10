@@ -13,10 +13,12 @@ import { Tabs } from './tabs.js';
 import { StatusBar } from './statusbar.js';
 import { SearchPanel } from './search.js';
 import { Preview } from './preview.js';
+import { Reader, canView } from './reader.js';
 import { Viewer } from './viewer.js';
 import { showSettings } from './settingsSheet.js';
 import { sheet, toast } from './dialogs.js';
 import { h, icon, logo, debounce } from './dom.js';
+import { APP_NAME } from '../core/brand.js';
 
 export class Shell {
   constructor(app) {
@@ -30,6 +32,7 @@ export class Shell {
     this.status = new StatusBar(app, this);
     this.search = new SearchPanel(app);
     this.preview = new Preview(app, (url) => this.openExternal(url));
+    this.reader = new Reader(app, this.preview);
     this.viewer = new Viewer(app);
     this.build();
     this.wire();
@@ -45,9 +48,11 @@ export class Shell {
     document.body.className = 'app' + (app.mobile ? ' mobile' : '') + ` be-${app.backend.kind}`;
 
     this.titleEl = h('div.ab-title');
+    // View / Edit for markdown and CSV (shown only for those)
+    this.viewBtn = h('button.view-btn', { type: 'button', title: 'View cleanly / back to editing (Ctrl+Shift+V)', onclick: () => app.setView(app.active, !app.active?.view) });
     this.sidebarBtn = h('button.ghost.icon', { title: 'Sidebar (Ctrl+Shift+E)', 'aria-label': 'Sidebar', onclick: () => this.toggleSidebar() }, icon(app.mobile ? 'menu' : 'sidebar'));
     if (app.mobile) {
-      this.previewBtn = h('button.ghost.icon', { title: 'Preview', 'aria-label': 'Markdown preview', onclick: () => app.setPreview(!app.ui.preview) }, icon('eye'));
+      this.previewBtn = h('button.ghost.icon', { title: 'View', 'aria-label': 'View or edit', onclick: () => app.setView(app.active, !app.active?.view) }, icon('eye'));
       this.saveBtn = h('button.ghost.icon', { 'aria-label': 'Save', onclick: () => app.save() }, icon('save'));
       this.moreBtn = h('button.ghost.icon', { 'aria-label': 'Menu', onclick: () => (this.menu.drop ? this.menu.close() : this.menu.openMobile(this.moreBtn)) }, icon('more'));
       this.appbar = h('header.appbar', {}, this.sidebarBtn, this.titleEl,
@@ -55,8 +60,8 @@ export class Shell {
         h('button.ghost.icon', { 'aria-label': 'Redo', onclick: () => redo(app.view) }, icon('redo')),
         this.previewBtn, this.saveBtn, this.moreBtn);
     } else {
-      this.appbar = h('header.appbar', {}, h('div.ab-logo', { title: `mnemostxt ${app.backend.version}` }, logo(18)), this.menu.el, this.titleEl,
-        h('div.ab-actions', {},
+      this.appbar = h('header.appbar', {}, h('div.ab-logo', { title: `${APP_NAME} ${app.backend.version}` }, logo(18)), this.menu.el, this.titleEl,
+        h('div.ab-actions', {}, this.viewBtn,
           h('button.ghost.icon', { title: app.ui.menuCollapsed ? 'Expand menu bar' : 'Collapse menu bar', 'aria-label': 'Collapse menu bar', onclick: () => this.toggleMenu() }, icon('collapse')),
           this.sidebarBtn));
     }
@@ -80,7 +85,7 @@ export class Shell {
       search: h('button.ghost.icon', { title: 'Find in files (Ctrl+Shift+F)', 'aria-label': 'Find in files', onclick: () => this.setSideView('search') }, icon('search')),
     };
     this.side = h('aside.side', { 'aria-label': 'Sidebar' },
-      h('div.side-top', {}, app.mobile ? h('div.side-brand', {}, logo(20), h('span.brand', {}, 'mnemostxt')) : null, h('span.grow'), this.viewBtns.files, this.viewBtns.search,
+      h('div.side-top', {}, app.mobile ? h('div.side-brand', {}, logo(20), h('span.brand', {}, APP_NAME)) : null, h('span.grow'), this.viewBtns.files, this.viewBtns.search,
         h('button.ghost.icon', { title: 'Preferences', 'aria-label': 'Preferences', onclick: () => this.showSettings() }, icon('gear'))),
       this.filesView, this.searchView);
     this.scrim = h('div.scrim', { hidden: true, onclick: () => this.toggleSidebar(false) });
@@ -92,7 +97,7 @@ export class Shell {
     this.editorHost.append(app.view.dom);
     this.empty = h('div.empty-state');
     this.prevResizer = h('div.resizer.v.prev', { 'aria-hidden': 'true' });
-    this.work = h('div.work', {}, this.editorHost, this.viewer.el, this.empty, this.prevResizer, this.preview.el);
+    this.work = h('div.work', {}, this.editorHost, this.reader.el, this.viewer.el, this.empty, this.prevResizer, this.preview.el);
     const demoBar = app.backend.isDemo
       ? h('div.demo-bar', {}, h('span.grow', {}, 'Demo: sample notes, read-only.'), h('a', { href: '/' }, 'About'), h('a', { href: '#', onclick: (e) => { e.preventDefault(); this.logout(); } }, 'Sign out'))
       : null;
@@ -135,6 +140,7 @@ export class Shell {
     app.on('conflict', () => this.renderBanner());
     app.on('cursor', () => this.renderTitle());
     app.on('preview', () => this.showActive(app.active));
+    app.on('view', (d) => { if (d === app.active) this.showActive(d); });
     app.on('drawer', (open) => this.toggleSidebar(open));
     app.on('settings', (keys) => {
       this.status.render();
@@ -181,6 +187,7 @@ export class Shell {
       addEventListener('popstate', () => {
         if (this.menu.drop) this.menu.close();
         else if (this.side.classList.contains('open')) this.toggleSidebar(false, true);
+        else if (app.active?.view) app.setView(app.active, false);
         else if (app.ui.preview) app.setPreview(false);
       });
     }
@@ -222,18 +229,24 @@ export class Shell {
   showActive(d) {
     const app = this.app;
     const text = d?.kind === 'text';
-    this.editorHost.hidden = !text;
+    const viewable = canView(d);
+    const reading = viewable && !!d.view;
+    this.editorHost.hidden = !text || reading;
+    this.reader.el.hidden = !reading;
+    if (reading) this.reader.render(d);
+    document.body.classList.toggle('reading', reading);
+    this.viewBtn.hidden = !viewable;
+    this.viewBtn.replaceChildren(icon(reading ? 'edit' : 'eye'), h('span', {}, reading ? 'Edit' : 'View'));
     this.empty.hidden = !!d;
     this.viewer.el.hidden = !d || text;
     if (d && !text) this.viewer.show(d); else this.viewer.clear();
     if (!d) this.renderEmpty();
     const md = text && isMarkdown(d.path || d.untitled || '');
     document.body.classList.toggle('is-md', !!md);
-    this.prevResizer.hidden = !(md && app.ui.preview) || app.mobile;
+    this.prevResizer.hidden = !(md && app.ui.preview) || app.mobile || reading;
     if (app.mobile) {
-      document.body.classList.toggle('preview-only', !!(md && app.ui.preview));
-      if (this.previewBtn) this.previewBtn.hidden = !md;
-      if (md && app.ui.preview) history.pushState({ m: 'preview' }, '');
+      if (this.previewBtn) { this.previewBtn.hidden = !viewable; this.previewBtn.replaceChildren(icon(reading ? 'edit' : 'eye')); }
+      if (reading) history.pushState({ m: 'view' }, '');
     }
     this.preview.render();
     this.renderTitle();
@@ -245,7 +258,7 @@ export class Shell {
   renderTitle() {
     const app = this.app;
     const d = app.active;
-    if (!d) { this.titleEl.replaceChildren(h('span.muted', {}, app.mobile ? 'mnemostxt' : '')); return; }
+    if (!d) { this.titleEl.replaceChildren(h('span.muted', {}, app.mobile ? APP_NAME : '')); return; }
     const dirty = app.dirty(d);
     this.titleEl.replaceChildren(...[
       h('span.ab-name', {}, (dirty ? '● ' : '') + app.displayName(d)),
@@ -291,7 +304,7 @@ export class Shell {
     const recent = app.closed.slice(0, 6);
     this.empty.replaceChildren(h('div.welcome', {},
       logo(64),
-      h('h1', {}, 'mnemostxt'),
+      h('h1', {}, APP_NAME),
       h('p.muted', {}, 'Just a notepad. Your notes folder is always on the left.'),
       h('div.welcome-actions', {},
         h('button.primary', { onclick: () => app.newDoc() }, 'New file', h('kbd', {}, 'Ctrl+N')),
@@ -443,7 +456,7 @@ export class Shell {
     const be = this.app.backend;
     sheet({
       title: 'About',
-      body: h('div.about', {}, logo(56), h('h2', {}, 'mnemostxt'), h('p', {}, `Version ${be.version} · ${be.kind === 'web' ? 'web' : be.platform}`),
+      body: h('div.about', {}, logo(56), h('h2', {}, APP_NAME), h('p', {}, `Version ${be.version} · ${be.kind === 'web' ? 'web' : be.platform}`),
         h('p.muted', {}, 'A plain notepad for your notes folder — desktop, Android and web.'),
         h('p', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); this.openExternal('https://gitlab.com/niharokz/mnemostxt'); } }, 'gitlab.com/niharokz/mnemostxt'))),
       actions: [{ label: 'OK', primary: true }],

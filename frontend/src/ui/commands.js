@@ -12,6 +12,8 @@ import { toggleBookmark, nextBookmark, prevBookmark, clearBookmarks } from '../e
 import { applyLines, applyText, changeCase, caseOps, transforms, joinLines, cutLine, tabsToSpaces, leadingSpacesToTabs } from '../editor/lineops.js';
 import { comboOf, normalizeCombo, applyKeybindings } from '../core/keys.js';
 import { dialogOpen } from './dialogs.js';
+import { canView } from './reader.js';
+import { APP_NAME } from '../core/brand.js';
 
 export function buildCommands(app, ui) {
   const v = () => app.view;
@@ -98,6 +100,7 @@ export function buildCommands(app, ui) {
     // View
     { id: 'view.menu', label: 'Collapse menu bar', keys: [], scope: 'app', run: () => ui.toggleMenu(), checked: () => app.ui.menuCollapsed, when: () => !app.mobile },
     { id: 'view.sidebar', label: 'Sidebar', keys: ['Ctrl+Shift+E'], scope: 'app', run: () => ui.toggleSidebar(), checked: () => app.ui.sidebar },
+    { id: 'view.read', label: 'View / Edit (markdown, CSV)', keys: ['Ctrl+Shift+V'], scope: 'app', run: () => { if (canView(app.active)) app.setView(app.active, !app.active.view); }, checked: () => !!app.active?.view, when: () => canView(app.active) },
     { id: 'view.preview', label: 'Markdown preview', keys: ['Ctrl+Shift+M'], scope: 'app', run: () => app.setPreview(!app.ui.preview), checked: () => app.ui.preview },
     { id: 'view.wrap', label: 'Word wrap', keys: ['Alt+Z'], scope: 'app', run: () => app.settings.set({ wordWrap: !app.settings.get('wordWrap') }), checked: () => app.settings.get('wordWrap') },
     { id: 'view.whitespace', label: 'Show whitespace', keys: [], scope: 'app', run: () => app.settings.set({ showWhitespace: !app.settings.get('showWhitespace') }), checked: () => app.settings.get('showWhitespace') },
@@ -119,7 +122,7 @@ export function buildCommands(app, ui) {
     { id: 'settings.notes', label: 'Notes folder…', keys: [], scope: 'app', run: () => app.chooseNotesRoot(), when: () => !!app.backend.setNotesRoot },
     { id: 'settings.trash', label: 'Empty trash…', keys: [], scope: 'app', run: () => app.emptyTrash() },
     { id: 'help.keys', label: 'Keyboard shortcuts', keys: ['F1'], scope: 'app', run: () => ui.showShortcuts() },
-    { id: 'help.about', label: 'About mnemostxt', keys: [], scope: 'app', run: () => ui.showAbout() },
+    { id: 'help.about', label: `About ${APP_NAME}`, keys: [], scope: 'app', run: () => ui.showAbout() },
     { id: 'web.logout', label: 'Sign out', keys: [], scope: 'app', run: () => ui.logout(), when: () => app.backend.kind === 'web' },
   ];
   for (const c of list) { c.scope ||= 'editor'; c.keys = c.keys.map(normalizeCombo); c.defaultKeys = c.keys; c.defaultPassive = !!c.passive; }

@@ -58,7 +58,7 @@ func TestFlow(t *testing.T) {
 	if code, _, _ := do(t, c, "GET", ts.URL+"/api/list?path=", "", false); code != 401 {
 		t.Fatalf("list before sign-in: %d", code)
 	}
-	if code, body, _ := do(t, c, "GET", ts.URL+"/", "", false); code != 200 || !strings.Contains(body, "mnemostxt test") {
+	if code, body, _ := do(t, c, "GET", ts.URL+"/", "", false); code != 200 || !strings.Contains(body, "MnemoTXT test") {
 		t.Fatalf("landing: %d", code)
 	}
 	if code, _, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"me","password":"pw"}`, false); code != 403 {

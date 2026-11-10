@@ -45,10 +45,10 @@ pub fn set(app: &AppHandle, enabled: bool) -> Res<()> {
         ));
     }
     let e = |x: tauri::Error| err("IO", x);
-    let show = MenuItem::with_id(app, "show", "Show mnemostxt", true, None::<&str>).map_err(e)?;
+    let show = MenuItem::with_id(app, "show", "Show MnemoTXT", true, None::<&str>).map_err(e)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).map_err(e)?;
     let menu = Menu::with_items(app, &[&show, &quit]).map_err(e)?;
-    let mut b = TrayIconBuilder::with_id(ID).tooltip("mnemostxt").menu(&menu).show_menu_on_left_click(false);
+    let mut b = TrayIconBuilder::with_id(ID).tooltip("MnemoTXT").menu(&menu).show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon() {
         b = b.icon(icon.clone());
     }

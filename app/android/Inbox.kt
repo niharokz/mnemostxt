@@ -22,7 +22,7 @@ object Inbox {
 
   /** <notes>/<inbox>, created when missing. Throws with a readable message. */
   fun dir(ctx: Context): File {
-    val notes = notesDir(ctx) ?: throw IllegalStateException("Open mnemostxt once and choose your notes folder first")
+    val notes = notesDir(ctx) ?: throw IllegalStateException("Open MnemoTXT once and choose your notes folder first")
     val inbox = (prefs(ctx).getString("inbox", "inbox") ?: "inbox").trim('/')
     if (inbox.isEmpty() || inbox.split('/').any { it == ".." || it.isEmpty() }) throw IllegalStateException("The inbox folder setting is not valid")
     val dir = File(notes, inbox)

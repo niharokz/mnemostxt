@@ -391,3 +391,28 @@ html.see-through body.app { background-image: none; background-color: var(--nss-
 .demo-bar .grow { flex: 1; }
 .theme-ed .row > input { flex: 1 1 auto; width: auto; min-width: 0; }
 .theme-ed .row > select { flex: none; width: auto; }
+
+/* ── clean View of markdown and CSV (ui/reader.js) ── */
+.reader { grid-column: 1; grid-row: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; background: var(--nss-surface); }
+.reader[hidden] { display: none; }
+.rd-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--nss-line); font-size: 12.5px; }
+.rd-bar .grow { flex: 1; }
+.rd-filter { width: 200px; min-height: 28px; }
+.rd-body { flex: 1; min-height: 0; overflow: auto; }
+.rd-md { max-width: 780px; margin: 0 auto; padding: 28px 28px 80px; font-size: 1.02rem; line-height: 1.7; }
+.rd-scroll { overflow: auto; }
+.rd-table { border-collapse: separate; border-spacing: 0; font: 12.5px/1.45 var(--ed-font, var(--nss-mono)); min-width: 100%; }
+.rd-table th, .rd-table td { padding: 5px 12px; border-bottom: 1px solid var(--nss-line); border-right: 1px solid color-mix(in srgb, var(--nss-line) 60%, transparent); text-align: left; vertical-align: top; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rd-table thead th { position: sticky; top: 0; z-index: 1; background: var(--nss-surface-2); color: var(--nss-ink); font-weight: 600; cursor: pointer; user-select: none; }
+.rd-table thead th:hover { color: var(--nss-fg); }
+.rd-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.rd-table .rn { position: sticky; left: 0; background: var(--nss-surface-2); color: var(--nss-muted); text-align: right; min-width: 3ch; cursor: default; }
+.rd-table thead .rn { z-index: 2; }
+.rd-table tbody tr:nth-child(even) td:not(.rn) { background: color-mix(in srgb, var(--nss-fg) 3%, transparent); }
+.rd-table tbody tr:hover td:not(.rn) { background: color-mix(in srgb, var(--nss-accent) 12%, transparent); }
+.rd-more, .rd-empty { padding: 12px; display: flex; align-items: center; gap: 10px; }
+.view-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 2px 10px; font-size: 12.5px; margin-right: 6px; }
+.view-btn[hidden] { display: none; }
+body.reading .view-btn { background: var(--nss-accent); border-color: var(--nss-accent); color: var(--nss-on-accent); }
+body.mobile .rd-md { padding: 18px 16px 60px; }
+body.mobile .rd-filter { width: 130px; }

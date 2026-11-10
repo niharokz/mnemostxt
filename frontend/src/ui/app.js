@@ -14,6 +14,7 @@ import { Store } from '../core/store.js';
 import { resolveTheme, themeIdFor, applyTheme } from '../core/themes.js';
 import { confirm, prompt, sheet, toast, alert } from './dialogs.js';
 import { debounce, h } from './dom.js';
+import { APP_NAME } from '../core/brand.js';
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif', '.svg']);
 const MAX_OPEN = 50 * 1024 * 1024; // refuse beyond this (the Rust side and the server agree)
@@ -219,7 +220,7 @@ export class App {
     } catch (e) { toast(`Cannot open ${basename(path)}: ${e.message}`, { error: true }); return null; }
     if (!st) { toast(`${basename(path)} no longer exists`, { error: true }); return null; }
     if (st.dir) { this.addRoot(path); return null; }
-    if (st.size > MAX_OPEN) { alert('File too large', `${basename(path)} is ${(st.size / 1048576).toFixed(0)} MB. mnemostxt opens files up to 50 MB.`); return null; }
+    if (st.size > MAX_OPEN) { alert('File too large', `${basename(path)} is ${(st.size / 1048576).toFixed(0)} MB. ${APP_NAME} opens files up to 50 MB.`); return null; }
     let r;
     try { r = await this.backend.read(path); } catch (e) { toast(`Cannot read ${basename(path)}: ${e.message}`, { error: true }); return null; }
     const doc = this.docFromBytes(path, r, opts);
@@ -309,7 +310,7 @@ export class App {
 
   updateTitle() {
     const d = this.active;
-    const t = d ? `${this.dirty(d) ? '● ' : ''}${this.displayName(d)}${d.path ? ' — ' + this.displayDir(d) : ''} — mnemostxt` : 'mnemostxt';
+    const t = d ? `${this.dirty(d) ? '● ' : ''}${this.displayName(d)}${d.path ? ' — ' + this.displayDir(d) : ''} — ${APP_NAME}` : APP_NAME;
     this.backend.setTitle?.(t);
   }
 
@@ -645,6 +646,15 @@ export class App {
     await this.settings.refresh();
   }
 
+  // ── clean View (markdown, CSV) instead of the editor ─────
+  setView(d, on) {
+    if (!d) return;
+    d.view = !!on;
+    this.emit('view', d);
+    if (!on && d === this.active) this.view.focus();
+    this.saveSession();
+  }
+
   // ── preview panel ────────────────────────────────────────
   setPreview(on) {
     this.ui.preview = on;
@@ -659,7 +669,7 @@ export class App {
       v: 1,
       tabs: this.docs.map((d) => ({
         id: d.id, path: d.path, untitled: d.untitled || null, kind: d.kind, lang: d.kind === 'text' && d.langName !== PLAIN && d.langNameManual ? d.langName : null,
-        encoding: d.encoding || null, eol: d.eol || null, sel: d.kind === 'text' ? { a: d.state.selection.main.anchor, h: d.state.selection.main.head } : null,
+        encoding: d.encoding || null, eol: d.eol || null, view: d.view || null, sel: d.kind === 'text' ? { a: d.state.selection.main.anchor, h: d.state.selection.main.head } : null,
       })),
       active: this.active?.id || null,
       roots: this.extraRoots,
@@ -717,6 +727,7 @@ export class App {
       d.id = t.id;
       if (t.untitled && t.path && this.store.isScratch(t.path)) d.untitled = t.untitled;
       if (t.lang) d.langNameManual = true;
+      if (t.view) d.view = true;
       if (backup != null && d.kind === 'text') {
         d.state = d.state.update({ changes: { from: 0, to: d.state.doc.length, insert: backup } }).state;
         d.wasDirty = this.dirty(d);
@@ -764,8 +775,8 @@ export class App {
         ? 'mnemostxt keeps one folder always in the sidebar — your notes. Its settings live there too, in logs/mnemostxt/settings.json, so every device shares them.'
         : 'The notes folder is always in the sidebar and holds the shared settings file.'),
       h('label.f', {}, h('span', {}, 'Notes folder'), h('div.row', {}, input, browse)),
-      be.kind === 'android' ? h('p.muted', {}, 'Android: allow "All files access" for mnemostxt when asked, so it can read a folder like /storage/emulated/0/notes. Browse… opens the system folder picker.') : null);
-    const v = await sheet({ title: first ? 'Welcome to mnemostxt' : 'Notes folder', body, actions: first ? [{ label: 'Use this folder', primary: true, run: () => input.value }] : [{ label: 'Cancel' }, { label: 'Use this folder', primary: true, run: () => input.value }] });
+      be.kind === 'android' ? h('p.muted', {}, `Android: allow "All files access" for ${APP_NAME} when asked, so it can read a folder like /storage/emulated/0/notes. Browse… opens the system folder picker.`) : null);
+    const v = await sheet({ title: first ? `Welcome to ${APP_NAME}` : 'Notes folder', body, actions: first ? [{ label: 'Use this folder', primary: true, run: () => input.value }] : [{ label: 'Cancel' }, { label: 'Use this folder', primary: true, run: () => input.value }] });
     const path = (v || '').trim();
     if (!path) { if (first && !be.notesRoot) return this.chooseNotesRoot(true); return; }
     try {

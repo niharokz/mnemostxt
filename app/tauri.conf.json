@@ -20,7 +20,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "mnemostxt",
+        "title": "MnemoTXT",
         "width": 1280,
         "height": 800,
         "minWidth": 360,

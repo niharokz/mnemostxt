@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#3a807a">
-<meta name="description" content="mnemostxt: just a notepad. Tabs, a folder sidebar, Notepad++ keys and syntax colours for 140+ languages, on Linux, Windows, Android and the web. Your notes stay plain files.">
-<title>mnemostxt - just a notepad</title>
+<meta name="description" content="MnemoTXT: just a notepad. Tabs, a folder sidebar, Notepad++ keys and syntax colours for 140+ languages, on Linux, Windows, Android and the web. Your notes stay plain files.">
+<title>MnemoTXT - just a notepad</title>
 <link rel="icon" href="/icon.svg?v={{.Version}}" type="image/svg+xml">
 <style>
 /* The public "about" page at "/": the nss tokens and the layout of the other
@@ -73,7 +73,7 @@ body>.about{max-width:62rem;margin:0 auto;padding:1.25rem 1rem 4rem}
 <body>
 <main class="about">
   <nav>
-    <a class="brand" href="/"><img src="/icon.svg?v={{.Version}}" alt="" width="34" height="34">mnemostxt</a>
+    <a class="brand" href="/"><img src="/icon.svg?v={{.Version}}" alt="" width="34" height="34">MnemoTXT</a>
     <a class="btn primary" href="/app/">{{if .Signed}}Open{{else}}Sign in{{end}}</a>
   </nav>
 
@@ -90,7 +90,7 @@ body>.about{max-width:62rem;margin:0 auto;padding:1.25rem 1rem 4rem}
   {{if .Demo}}<p class="muted">Just looking? <a href="/app/">Sign in</a> with the demo account shown on the sign-in card: sample notes, read-only.</p>{{end}}
 
   <section class="feat" aria-label="Features">
-    <div class="card"><h2>📝 A real notepad</h2><p>Tabs, multi-cursor, column select, bookmarks, folding, line operations, encodings and line endings, markdown preview.</p></div>
+    <div class="card"><h2>📝 A real notepad</h2><p>Tabs, multi-cursor, column select, bookmarks, folding, line operations, encodings and line endings. A View button reads Markdown cleanly and shows CSV as a table.</p></div>
     <div class="card"><h2>⌨️ Notepad++ keys</h2><p>Ctrl+D, Ctrl+Shift+Up, Alt+drag, F2 bookmarks, Ctrl+Q comments, and more. Remap any of them in Preferences.</p></div>
     <div class="card"><h2>📁 Your notes folder</h2><p>Always in the sidebar, next to any other folder you open. Sync it with Syncthing; nothing is locked in.</p></div>
     <div class="card"><h2>🎨 Themes</h2><p>nss dark and light, Solarized, Nord, Gruvbox and more, or your own colours, the same on every device.</p></div>
@@ -104,8 +104,8 @@ body>.about{max-width:62rem;margin:0 auto;padding:1.25rem 1rem 4rem}
       <thead><tr><th>Where</th><th>What you get</th></tr></thead>
       <tbody>
         <tr><td>🐧 Linux</td><td>A .deb; opens any text file (<code>mnemostxt file.txt</code>), optional tray, see-through background for picom</td></tr>
-        <tr><td>🪟 Windows</td><td>setup.exe for your user, no admin; “Open with mnemostxt” for .txt and .md</td></tr>
-        <tr><td>🤖 Android</td><td>Works offline on your synced folder, folder picker, fingerprint lock, “Share to mnemostxt” into your inbox</td></tr>
+        <tr><td>🪟 Windows</td><td>setup.exe for your user, no admin; “Open with MnemoTXT” for .txt and .md</td></tr>
+        <tr><td>🤖 Android</td><td>Works offline on your synced folder, folder picker, fingerprint lock, “Share to MnemoTXT” into your inbox</td></tr>
         <tr><td>🌐 Web</td><td>This server: your notes folder in any browser, after signing in</td></tr>
       </tbody>
     </table>
@@ -133,7 +133,7 @@ openssl rand -hex 32                              # MNEMOSTXT_SECRET</pre>
   <p class="muted">Everything else is in the <a href="{{.Source}}/-/blob/main/README.md">README</a>.</p>
 
   <footer>
-    mnemostxt {{.Version}} · MIT · <a href="{{.Source}}/-/blob/main/CHANGELOG.md">changelog</a> ·
+    MnemoTXT {{.Version}} · MIT · <a href="{{.Source}}/-/blob/main/CHANGELOG.md">changelog</a> ·
     <a href="https://gitlab.com/niharokz/mnemostxt">GitLab</a> · <a href="https://github.com/niharokz/mnemostxt">GitHub</a> · <a href="https://codeberg.org/niharokz/mnemostxt">Codeberg</a>
   </footer>
 </main>

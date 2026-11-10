@@ -3,6 +3,7 @@
 // and a link back to the About page. The server limits failed attempts per
 // address and bans repeat offenders.
 import { h, logo } from './dom.js';
+import { APP_NAME } from '../core/brand.js';
 
 export function showLogin(backend) {
   const user = h('input', { name: 'user', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false', required: true });
@@ -27,7 +28,7 @@ export function showLogin(backend) {
   };
 
   const form = h('form.card.login', { onsubmit: (e) => { e.preventDefault(); submit(user.value, pass.value); } },
-    h('div.login-brand', {}, logo(30), h('span.brand', {}, 'mnemostxt')),
+    h('div.login-brand', {}, logo(30), h('span.brand', {}, APP_NAME)),
     h('label.f', {}, h('span', {}, 'Username'), user),
     h('label.f', {}, h('span', {}, 'Password'), pass),
     btn, err,
@@ -35,7 +36,7 @@ export function showLogin(backend) {
       h('b', {}, 'Try the demo'), ' (read-only, sample notes)', h('br'),
       'user ', h('code', {}, demo.user), ' · password ', h('code', {}, demo.password),
       h('div', {}, h('button', { type: 'button', onclick: () => submit(demo.user, demo.password) }, 'Open the demo'))) : null,
-    h('p.login-foot', {}, h('a', { href: '/' }, '← About mnemostxt')));
+    h('p.login-foot', {}, h('a', { href: '/' }, `← About ${APP_NAME}`)));
   document.body.className = 'login';
   document.body.replaceChildren(h('main.center', {}, form));
   user.focus();

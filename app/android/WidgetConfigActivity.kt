@@ -90,7 +90,7 @@ class WidgetConfigActivity : Activity() {
     val notes = Inbox.notesDir(this)
     val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20)) }
     col.addView(label(when (kind) { "pinned" -> "Pinned note"; "capture" -> "Quick capture"; else -> "Recent files" }, big = true))
-    if (notes == null) col.addView(note("Open mnemostxt once and choose your notes folder first."))
+    if (notes == null) col.addView(note("Open MnemoTXT once and choose your notes folder first."))
 
     if (kind == "recent") {
       col.addView(label("Folder"))
@@ -136,7 +136,7 @@ class WidgetConfigActivity : Activity() {
       col.addView(label("Font"))
       col.addView(radios(listOf("sans" to "Sans", "mono" to "Monospace"), font, true) { font = it })
       col.addView(CheckBox(this).apply {
-        text = "Hide the text while mnemostxt's lock is on"
+        text = "Hide the text while MnemoTXT's lock is on"
         setTextColor(fg)
         isChecked = hideWhenLocked
         setOnCheckedChangeListener { _, on -> hideWhenLocked = on }

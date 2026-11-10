@@ -55,6 +55,8 @@ keeps session and backups in the browser, per account.
 | `ui/commands.js` | the command table and the capture-phase key handler |
 | `ui/menu.js` | menu bar, collapsed ≡ menu, phone drill-down menu |
 | `ui/tree.js`, `ui/tabs.js`, `ui/statusbar.js`, `ui/search.js`, `ui/preview.js`, `ui/viewer.js` | the panels |
+| `ui/reader.js` | the clean View of markdown and CSV/TSV (table: sort, filter); `core/csv.js` parses |
+| `core/brand.js` | the name people see, MnemoTXT |
 | `ui/settingsSheet.js` | Preferences in sections, the theme colour editor, the key editor, per-device settings |
 | `ui/login.js` | the web sign-in card (and the demo box) |
 | `backend/android.js` | `window.MnemostxtAndroid`: folder picker, lock, permission screens, share settings |

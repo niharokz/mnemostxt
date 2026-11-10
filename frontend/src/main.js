@@ -11,6 +11,7 @@ import { App } from './ui/app.js';
 import { Shell } from './ui/shell.js';
 import { showLogin } from './ui/login.js';
 import { h } from './ui/dom.js';
+import { APP_NAME } from './core/brand.js';
 
 // Anything that breaks start-up is shown, never a blank window.
 function fatal(e) {
@@ -18,7 +19,7 @@ function fatal(e) {
   const msg = e ? `${e.message || e}\n\n${e.stack || ''}` : 'unknown error';
   document.body.className = 'app boot';
   document.body.replaceChildren(h('main.center', {}, h('div.card', { style: { maxWidth: '640px' } },
-    h('h2', {}, 'mnemostxt could not start'),
+    h('h2', {}, `${APP_NAME} could not start`),
     h('pre', { style: { whiteSpace: 'pre-wrap', fontSize: '12px', color: 'var(--nss-bad)' } }, msg),
     h('button', { onclick: () => location.reload() }, 'Try again'))));
 }
@@ -28,7 +29,7 @@ async function start() {
   try {
     backend = await createBackend();
   } catch (e) {
-    document.body.replaceChildren(h('main.center', {}, h('div.card', {}, h('h2', {}, 'mnemostxt cannot start'), h('p.muted', {}, e?.message || String(e)))));
+    document.body.replaceChildren(h('main.center', {}, h('div.card', {}, h('h2', {}, `${APP_NAME} cannot start`), h('p.muted', {}, e?.message || String(e)))));
     return;
   }
   if (backend.kind === 'web' && !backend.signedIn) { showLogin(backend); return; }

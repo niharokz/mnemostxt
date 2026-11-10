@@ -1,4 +1,5 @@
-// Markdown preview: a side panel on desktop, a full view on phones. Rendered with
+// Markdown preview: a side panel next to the editor (Ctrl+Shift+M). The clean
+// View (ui/reader.js) renders through fill() too. Rendered with
 // marked and sanitised with DOMPurify; images next to the note load through the
 // backend, links to other notes open them, web links open in the browser.
 import { marked } from 'marked';
@@ -22,12 +23,12 @@ export class Preview {
     app.on('content', () => this.app.ui.preview && this.update());
     app.on('active', () => this.app.ui.preview && this.render());
     app.on('preview', () => this.render());
-    this.body.addEventListener('click', (e) => this.onClick(e));
+    this.body.addEventListener('click', (e) => this.onClick(e, this.body));
   }
 
   get visible() {
     const d = this.app.active;
-    return this.app.ui.preview && d?.kind === 'text' && isMarkdown(d.path || d.untitled || '');
+    return this.app.ui.preview && d?.kind === 'text' && !d.view && isMarkdown(d.path || d.untitled || '');
   }
 
   stripFrontMatter(text) {
@@ -40,17 +41,21 @@ export class Preview {
     this.el.hidden = !this.visible;
     document.body.classList.toggle('has-preview', !this.el.hidden);
     if (this.el.hidden) return;
-    const d = this.app.active;
-    const { meta, body } = this.stripFrontMatter(this.app.textOf(d));
-    const html = DOMPurify.sanitize(marked.parse(body), { ADD_ATTR: ['target'] });
-    this.body.innerHTML = (meta ? `<pre class="fm">${escapeHtml(meta)}</pre>` : '') + html;
-    for (const cb of this.body.querySelectorAll('input[type=checkbox]')) cb.disabled = true;
-    this.loadImages(d);
+    this.fill(this.body, this.app.active);
   }
 
-  async loadImages(d) {
+  // Renders document d as markdown into target (front matter shown as a block).
+  fill(target, d) {
+    const { meta, body } = this.stripFrontMatter(this.app.textOf(d));
+    const html = DOMPurify.sanitize(marked.parse(body), { ADD_ATTR: ['target'] });
+    target.innerHTML = (meta ? `<pre class="fm">${escapeHtml(meta)}</pre>` : '') + html;
+    for (const cb of target.querySelectorAll('input[type=checkbox]')) cb.disabled = true;
+    this.loadImages(d, target);
+  }
+
+  async loadImages(d, target) {
     const base = d.path ? dirname(d.path) : this.app.backend.notesRoot;
-    for (const img of this.body.querySelectorAll('img')) {
+    for (const img of target.querySelectorAll('img')) {
       const src = img.getAttribute('src') || '';
       if (/^(https?:|data:|blob:)/i.test(src) || base == null) continue;
       const path = src.startsWith('/') && this.app.backend.notesRoot != null ? join(this.app.backend.notesRoot, src) : join(base, decodeURIComponent(src));
@@ -68,13 +73,13 @@ export class Preview {
     }
   }
 
-  onClick(e) {
+  onClick(e, root) {
     const a = e.target.closest('a');
     if (!a) return;
     const href = a.getAttribute('href') || '';
     e.preventDefault();
     if (/^(https?:|mailto:)/i.test(href)) { this.openExternal(href); return; }
-    if (href.startsWith('#')) { this.body.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView(); return; }
+    if (href.startsWith('#')) { root.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView(); return; }
     const d = this.app.active;
     const target = decodeURIComponent(href.split('#')[0]);
     if (!target) return;

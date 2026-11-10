@@ -270,7 +270,7 @@ if [ "$DEPLOY" = 1 ]; then
   if [ -n "$HEALTH_URL" ]; then
     h=$(curl -fsS --max-time 10 "$HEALTH_URL/health" 2>/dev/null || true)
     [ "$h" = ok ] || fail "$HEALTH_URL/health did not answer ok"
-    curl -fsS --max-time 10 "$HEALTH_URL/" 2>/dev/null | grep -q "mnemostxt $NEW" || fail "$HEALTH_URL/ does not show version $NEW"
+    curl -fsS --max-time 10 "$HEALTH_URL/" 2>/dev/null | grep -qi "mnemostxt $NEW" || fail "$HEALTH_URL/ does not show version $NEW"
     ok "$HEALTH_URL serves $NEW"
   fi
   rm -f "$ROOT/.release-deploy.log"
