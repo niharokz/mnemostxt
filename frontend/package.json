@@ -1,6 +1,6 @@
 {
   "name": "mnemostxt-frontend",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "description": "mnemostxt editor UI, shared by the desktop, Android and web builds",
