@@ -416,3 +416,45 @@ html.see-through body.app { background-image: none; background-color: var(--nss-
 body.reading .view-btn { background: var(--nss-accent); border-color: var(--nss-accent); color: var(--nss-on-accent); }
 body.mobile .rd-md { padding: 18px 16px 60px; }
 body.mobile .rd-filter { width: 130px; }
+
+/* ── 0.0.5: pickers, compare view, focus mode, links, table cells ── */
+.picker input[type=search] { width: 100%; }
+.pick { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; min-height: 30px; }
+.pick-l { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nss-fg); }
+.pick-d { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: right; }
+
+.diff { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.diff-head { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.diff-head .grow { flex: 1; }
+.diff-legend .del { color: var(--nss-bad); } .diff-legend .add { color: var(--nss-ok); }
+.diff-body { max-height: 58dvh; overflow: auto; border: 1px solid var(--nss-line); border-radius: 8px; background: var(--nss-bg); font: 12px/1.5 var(--ed-font, var(--nss-mono)); }
+.diff-row { display: flex; gap: 8px; padding: 0 8px; white-space: pre-wrap; word-break: break-word; }
+.diff-row.add { background: color-mix(in srgb, var(--nss-ok) 16%, transparent); }
+.diff-row.del { background: color-mix(in srgb, var(--nss-bad) 16%, transparent); }
+.diff-row.gap { color: var(--nss-muted); font-style: italic; background: var(--nss-surface-2); }
+.diff-op { flex: none; width: 1ch; color: var(--nss-muted); user-select: none; }
+.diff-t { flex: 1; min-width: 0; }
+
+.md a.wikilink { text-decoration-style: dotted; }
+.rd-cell { width: 100%; min-height: 0; padding: 1px 4px; font: inherit; border-radius: 4px; }
+.sr-replace { display: flex; gap: 6px; }
+.sr-replace input { flex: 1; min-width: 0; }
+
+/* focus mode (View → Focus mode, Ctrl+Alt+Z; Escape leaves it) */
+body.zen .appbar, body.zen .menubar, body.zen .side, body.zen .main > .resizer, body.zen .tabs, body.zen .status, body.zen .banner, body.zen .demo-bar, body.zen .symbar { display: none !important; }
+body.zen.app { grid-template-rows: 1fr; }
+body.zen .main { grid-template-columns: minmax(0, 1fr); }
+body.zen .editor-host .cm-content { max-width: 46rem; margin: 0 auto; padding-top: 12vh; }
+body.zen .editor-host .cm-gutters { display: none; }
+
+/* printing the rendered note (File → Print the rendered note) */
+@media print {
+  #print-area.rich { white-space: normal; font: 11pt/1.6 system-ui, sans-serif; }
+  #print-area.rich .rd-md { max-width: none; padding: 0; }
+  #print-area.rich a { color: #000; }
+  #print-area.rich pre, #print-area.rich code { background: #f2f2f2; color: #000; }
+  #print-area.rich .rd-table { font-size: 9pt; }
+  #print-area.rich .rd-table th, #print-area.rich .rd-table td { white-space: normal; max-width: none; position: static; background: #fff; color: #000; border-color: #999; }
+}
+.diff-head .diff-legend { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-head > .muted, .diff-head > button { flex: none; white-space: nowrap; }

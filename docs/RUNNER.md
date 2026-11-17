@@ -10,7 +10,7 @@ README has the full set-up; this page lists only what mnemostxt needs from it.
 | Runner tag | `mnemostxt-app` (a project runner registered from this project) |
 | Release image | `mnemostxt-builder:4`, built from `docker/builder/` of this repo (`BUILDER_TAG` in `scripts/build-release.sh`, `image:` of `release-files` in `.gitlab-ci.yml`) |
 | Volumes | `mnemostxt-build-cache:/build-cache` (caches), `<gtlbrunner>/keys/mnemostxt:/keys:ro` (signing key) |
-| Key folder | `mnemostxt.jks` + `keystore.env` (`MNEMOSTXT_STORE_PASSWORD`, `MNEMOSTXT_KEY_PASSWORD`, `MNEMOSTXT_KEY_ALIAS`), made by `scripts/make-keystore.sh` |
+| Key folder | `mnemostxt.jks` + `keystore.env` (`MNEMOSTXT_STORE_PASSWORD`, `MNEMOSTXT_KEY_PASSWORD`, `MNEMOSTXT_KEY_ALIAS`), made by `scripts/make-keystore.sh`; optional `release-signing` (SSH key that signs `SHA256SUMS`, [RELEASING.md](RELEASING.md)) |
 | `allowed_images` | `["mnemostxt-builder:*", "alpine:*"]` with `pull_policy = ["if-not-present"]` |
 
 The gtlbrunner `docker-compose.yml` builds the image straight from GitLab:
@@ -20,6 +20,16 @@ The gtlbrunner `docker-compose.yml` builds the image straight from GitLab:
     profiles: [build]
     image: mnemostxt-builder:4
     build: https://gitlab.com/niharokz/mnemostxt.git#main:docker/builder
+```
+
+## Keep the image through clean-ups
+
+The image carries the label `nih.ar.keep=true` (from `docker/builder/Dockerfile`).
+A clean-up that runs `docker image prune -a` deletes it, and the next release
+fails. Use the label filter instead:
+
+```sh
+docker image prune -a -f --filter "label!=nih.ar.keep=true"
 ```
 
 ## When docker/builder/Dockerfile changes

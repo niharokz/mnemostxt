@@ -1,4 +1,4 @@
-// The menu bar (File, Edit, Search, View, Encoding, Language, Settings, ?).
+// The menu bar (File, Edit, Search, View, Notes, Encoding, Language, Settings, ?).
 // It can collapse into one ≡ button (View → Collapse menu bar); a lone Alt
 // press opens it, like Notepad++. On phones the same menus open from ⋮ as a
 // drill-down list.
@@ -10,19 +10,20 @@ import { allThemes } from '../core/themes.js';
 export function menuModel(app, ui) {
   const sub = (label, items) => ({ label, items });
   return [
-    sub('File', ['file.new', 'file.open', 'file.openFolder', '-', 'file.scratch', 'file.reopen', '-', 'file.save', 'file.saveAs', 'file.saveAll', 'file.rename', 'file.reload', 'file.trash', '-', 'file.close', 'file.closeAll', 'file.closeOthers', '-', 'file.print', '-', 'file.exit']),
+    sub('File', ['file.new', 'file.open', 'file.openFolder', '-', 'file.scratch', 'file.reopen', '-', 'file.save', 'file.saveAs', 'file.saveAll', 'file.rename', 'file.reload', 'file.trash', '-', 'file.history', '-', 'file.close', 'file.closeAll', 'file.closeOthers', '-', 'file.print', 'file.printView', 'file.exportHtml', '-', 'file.exit']),
     sub('Edit', ['edit.undo', 'edit.redo', '-', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.selectAll', '-',
       sub('Line operations', ['edit.duplicate', 'edit.deleteLine', 'edit.cutLine', 'edit.moveUp', 'edit.moveDown', 'edit.transpose', 'edit.join', 'edit.blankLine', '-', 'edit.sortAsc', 'edit.sortAscCi', 'edit.sortDesc', 'edit.reverse', 'edit.unique', 'edit.removeEmpty']),
       sub('Convert case', ['edit.upper', 'edit.lower', 'edit.title', 'edit.invert']),
       sub('Comment', ['edit.toggleComment', 'edit.comment', 'edit.uncomment', 'edit.blockComment']),
       sub('Blank operations', ['edit.trimTrailing', 'edit.trimLeading', 'edit.tabsToSpaces', 'edit.spacesToTabs']),
       sub('Multi-cursor', ['edit.cursorUp', 'edit.cursorDown', 'edit.nextOccurrence', 'edit.allOccurrences']),
-      '-', 'edit.indent', 'edit.outdent', 'edit.complete', 'edit.dateTime', '-', 'edit.readOnly']),
+      '-', 'edit.indent', 'edit.outdent', 'edit.complete', 'edit.dateTime', '-', 'edit.readOnly', 'edit.spellcheck']),
     sub('Search', ['search.find', 'search.replace', 'search.next', 'search.prev', '-', 'search.inFiles', '-', 'search.goto', 'search.brace', 'search.selectBrace', '-',
       sub('Bookmark', ['bookmark.toggle', 'bookmark.next', 'bookmark.prev', 'bookmark.clear'])]),
     sub('View', ['view.menu', 'view.sidebar', 'view.read', 'view.preview', '-', 'view.wrap', 'view.whitespace', 'view.lineNumbers', 'view.minimap', '-',
       'view.zoomIn', 'view.zoomOut', 'view.zoomReset', '-', 'view.foldAll', 'view.unfoldAll', 'view.fold', 'view.unfold', '-',
-      { label: 'Theme', items: () => themeItems(app) }, 'view.opacity', 'view.fullscreen']),
+      { label: 'Theme', items: () => themeItems(app) }, 'view.opacity', 'view.zen', 'view.typewriter', 'view.fullscreen']),
+    sub('Notes', ['note.daily', 'note.gotoFile', 'note.outline', '-', 'note.follow', 'note.backlinks', 'note.tag', '-', 'note.encrypt', 'note.decrypt', 'note.lock']),
     { label: 'Encoding', items: () => encodingItems(app) },
     { label: 'Language', items: () => languageItems(app, ui) },
     sub('Settings', ['settings.open', 'settings.file', 'settings.notes', 'settings.trash']),

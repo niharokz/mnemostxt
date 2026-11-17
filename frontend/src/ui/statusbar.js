@@ -32,6 +32,12 @@ export class StatusBar {
       else if (d.conflict === 'deleted') left.push(this.item('⚠ Deleted on disk', { cls: 'warn' }));
       else if (app.dirty(d)) left.push(this.item(d.path ? 'Unsaved' : 'Not saved yet', { cls: 'muted' }));
       else if (d.path) left.push(this.item('Saved', { cls: 'ok' }));
+      if (d.crypto) left.push(this.item(app.mobile ? '🔒' : '🔒 Encrypted', { cls: 'ok', title: 'This note is encrypted on disk', onclick: (e) => this.popup(e, [
+        { label: 'Change passphrase…', run: () => app.encryptDoc(d) },
+        { label: 'Remove encryption…', run: () => app.removeEncryption(d) },
+        '-',
+        { label: 'Lock encrypted notes', run: () => app.lockAll() },
+      ]) }));
       if (d.readOnly) left.push(this.item('Read-only', { cls: 'muted', onclick: () => this.ui.toggleReadOnly() }));
       if (d.conflictCopies?.length) left.push(this.item(app.mobile ? `⚠ ${d.conflictCopies.length}` : `⚠ ${d.conflictCopies.length} sync conflict${d.conflictCopies.length > 1 ? 's' : ''}`, { cls: 'warn', title: 'Syncthing kept another version of this file', onclick: (e) => this.conflictMenu(e, d) }));
     }
@@ -43,7 +49,10 @@ export class StatusBar {
       const cursors = st.selection.ranges.length;
       right.push(this.item(`Ln ${line.number}, Col ${main.head - line.from + 1}`, { title: 'Go to line (Ctrl+G)', onclick: () => this.ui.run('search.goto') }));
       if (sel || cursors > 1) right.push(this.item(cursors > 1 ? `${cursors} cursors · Sel ${sel}` : `Sel ${sel}`));
-      if (!app.mobile) right.push(this.item(`${st.doc.lines} lines`, { cls: 'muted' }));
+      if (!app.mobile) {
+        const words = app.wordsOf(d);
+        right.push(this.item(words >= 0 ? `${st.doc.lines} lines · ${words.toLocaleString()} words` : `${st.doc.lines} lines`, { cls: 'muted' }));
+      }
       const s = app.settings.values;
       if (!app.mobile) right.push(this.item(s.indentWithTabs ? `Tab: ${s.tabSize}` : `Spaces: ${s.tabSize}`, { title: 'Indentation', onclick: (e) => this.indentMenu(e) }));
       right.push(this.item(d.encoding, { title: 'Encoding', onclick: (e) => this.encodingMenu(e) }));
@@ -94,7 +103,10 @@ export class StatusBar {
   }
 
   conflictMenu(e, d) {
-    this.popup(e, d.conflictCopies.map((p) => ({ label: `Open ${p.split('/').pop()}`, run: () => this.app.open(p) })));
+    this.popup(e, d.conflictCopies.flatMap((p) => [
+      { label: `Compare with ${p.split('/').pop()}…`, run: () => this.app.compareConflict(d, p) },
+      { label: `Open ${p.split('/').pop()}`, run: () => this.app.open(p) },
+    ]));
   }
 
   // Steps through every theme (built-in, then yours), then "follow system".

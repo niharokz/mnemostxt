@@ -30,6 +30,8 @@ type Config struct {
 	BanAfter    int    // MNEMOSTXT_BAN_AFTER failed sign-ins in 15 min, default 5
 	BanHours    int    // MNEMOSTXT_BAN_HOURS, default 24
 	BanPrivate  bool   // MNEMOSTXT_BAN_PRIVATE, also ban LAN/Tailscale addresses, default false
+	Proxies     string // MNEMOSTXT_TRUSTED_PROXIES: whose forwarding headers count; "private" (default), "none" or CIDRs
+	TOTPSecret  string // MNEMOSTXT_TOTP_SECRET, base32: the owner also enters an authenticator code
 	Hidden      []string
 	DownloadAPK string // MNEMOSTXT_URL_APK
 	DownloadEXE string // MNEMOSTXT_URL_EXE
@@ -69,6 +71,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		Landing:     get("MNEMOSTXT_LANDING", "true") != "false",
 		Secret:      get("MNEMOSTXT_SECRET", ""),
 		BanPrivate:  get("MNEMOSTXT_BAN_PRIVATE", "false") == "true",
+		Proxies:     get("MNEMOSTXT_TRUSTED_PROXIES", "private"),
+		TOTPSecret:  get("MNEMOSTXT_TOTP_SECRET", ""),
 		Hidden:      []string{".git", ".trash", ".stfolder", ".stversions", ".obsidian", "node_modules"},
 		DownloadAPK: get("MNEMOSTXT_URL_APK", releaseBase+"mnemostxt.apk"),
 		DownloadEXE: get("MNEMOSTXT_URL_EXE", releaseBase+"mnemostxt-setup.exe"),

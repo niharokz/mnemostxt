@@ -139,3 +139,85 @@ test('csv', async () => {
   assert.equal(asNumber('12a'), null);
   assert.ok(isTable('Data.CSV') && !isTable('a.md'));
 });
+
+test('wiki links, tags, headings, fuzzy', async () => {
+  const { wikiLinks, wikiLinkAt, wikiPrefix, resolveWiki, backlinkPattern, tagPattern, tagAt, headings, fuzzyScore, countWords, isoDate } = await import('../src/core/wiki.js');
+  const links = wikiLinks('see [[Todo]] and [[projects/plan#Next|the plan]] or [[#Top]] [[]]');
+  assert.deepEqual(links.map((l) => [l.target, l.heading, l.label]), [['Todo', '', 'Todo'], ['projects/plan', 'Next', 'the plan'], ['', 'Top', 'Top']]);
+  assert.equal(wikiLinkAt('a [[b]] c', 4).target, 'b');
+  assert.equal(wikiLinkAt('a [[b]] c', 0), null);
+  assert.deepEqual(wikiPrefix('x [[pro'), { from: 4, text: 'pro' });
+  assert.equal(wikiPrefix('x [[a]] b'), null);
+  const files = [{ path: '/n/todo.md', rel: 'todo.md' }, { path: '/n/a/plan.md', rel: 'a/plan.md' }, { path: '/n/b/plan.md', rel: 'b/plan.md' }, { path: '/n/b/plan.txt', rel: 'b/plan.txt' }];
+  assert.equal(resolveWiki('Todo', files).rel, 'todo.md');
+  assert.equal(resolveWiki('plan', files, '/n/b/x.md').rel, 'b/plan.md');
+  assert.equal(resolveWiki('a/plan', files).rel, 'a/plan.md');
+  assert.equal(resolveWiki('plan.txt', files).rel, 'b/plan.txt');
+  assert.equal(resolveWiki('nope', files), null);
+  const back = new RegExp(backlinkPattern('/n/a/My plan (v2).md'), 'i');
+  assert.ok(back.test('x [[my plan (v2)]]') && back.test('[[a/My plan (v2)|p]]') && back.test('[[My plan (v2)#h]]') && !back.test('[[My plan (v2) old]]'));
+  const tag = new RegExp(tagPattern('#work'), 'i');
+  assert.ok(tag.test('do #work now') && tag.test('#work') && !tag.test('#workshop') && !tag.test('a#work'));
+  assert.equal(tagAt('do #work/x now', 5), 'work/x');
+  assert.equal(tagAt('# Heading', 1), null);
+  assert.deepEqual(headings('# A\ntext\n```\n# not\n```\n## B ##\n#nope'), [{ level: 1, text: 'A', line: 1 }, { level: 2, text: 'B', line: 6 }]);
+  assert.ok(fuzzyScore('pln', 'a/plan.md') > fuzzyScore('pln', 'plain/long/note.md'));
+  assert.equal(fuzzyScore('xyz', 'a/plan.md'), -1);
+  assert.equal(countWords("It's a well-known fact — 3 words? no."), 7);
+  assert.equal(isoDate(new Date(2026, 10, 7)), '2026-11-07');
+});
+
+test('line diff', async () => {
+  const { diffLines, diffStat, hunks } = await import('../src/core/diff.js');
+  const rows = diffLines('a\nb\nc\nd', 'a\nx\nc\nd\ne');
+  assert.deepEqual(rows.map((r) => r.op + r.text), [' a', '-b', '+x', ' c', ' d', '+e']);
+  assert.deepEqual(diffStat(rows), { added: 2, removed: 1 });
+  assert.deepEqual(diffLines('same', 'same').map((r) => r.op), [' ']);
+  assert.deepEqual(diffLines('', 'new').map((r) => r.op + r.text), ['-', '+new']);
+  const long = Array.from({ length: 40 }, (_, i) => 'l' + i).join('\n');
+  const h = hunks(diffLines(long, long.replace('l20', 'changed')), 2);
+  assert.equal(h[0].op, '…');
+  assert.equal(h.filter((r) => r.op === '-' || r.op === '+').length, 2);
+  assert.equal(h.length, 8);
+  // applying the diff gives b back
+  const a = 'one\ntwo\nthree\nfour\nfive', b = 'zero\none\nthree\nfour!\nfive\nsix';
+  assert.equal(diffLines(a, b).filter((r) => r.op !== '-').map((r) => r.text).join('\n'), b);
+  assert.equal(diffLines(a, b).filter((r) => r.op !== '+').map((r) => r.text).join('\n'), a);
+});
+
+test('encrypted notes', async () => {
+  const { isEncrypted, newLock, encryptBytes, decryptBytes, ENC_HEADER } = await import('../src/core/crypto.js');
+  const plain = new TextEncoder().encode('secret ✓ note\n');
+  const lock = await newLock('correct horse');
+  const file = await encryptBytes(plain, lock);
+  assert.ok(isEncrypted(file));
+  assert.ok(new TextDecoder().decode(file).startsWith(ENC_HEADER + '\n'));
+  assert.ok(!isEncrypted(plain) && !isEncrypted(new TextEncoder().encode(ENC_HEADER + ' is mentioned here')));
+  assert.deepEqual((await decryptBytes(file, { passphrase: 'correct horse' })).plain, plain);
+  assert.deepEqual((await decryptBytes(file, { lock })).plain, plain); // no passphrase: the kept key
+  await assert.rejects(decryptBytes(file, { passphrase: 'wrong' }), { code: 'WRONG' });
+  const again = await encryptBytes(plain, lock);
+  assert.notDeepEqual(again, file); // a fresh nonce every save
+  const other = await newLock('correct horse');
+  await assert.rejects(decryptBytes(file, { lock: other }), { code: 'WRONG' }); // another file's key, no passphrase
+  const bad = file.slice();
+  bad[40] ^= 1;
+  await assert.rejects(decryptBytes(bad, { passphrase: 'correct horse' }));
+});
+
+test('csv cell ranges', async () => {
+  const { parseRanges, quoteField, parse } = await import('../src/core/csv.js');
+  const text = 'a,b\r\n1,"x, ""y"""\n,3';
+  const rows = parseRanges(text);
+  assert.deepEqual(rows.map((r) => r.map((c) => c.text)), parse(text));
+  const cell = rows[1][1];
+  assert.equal(text.slice(cell.from, cell.to), '"x, ""y"""');
+  const edited = text.slice(0, cell.from) + quoteField('new, value') + text.slice(cell.to);
+  assert.deepEqual(parse(edited), [['a', 'b'], ['1', 'new, value'], ['', '3']]);
+  const empty = rows[2][0];
+  assert.equal(empty.from, empty.to);
+  assert.equal(quoteField('plain'), 'plain');
+  assert.equal(quoteField('say "hi"'), '"say ""hi"""');
+  assert.equal(quoteField('a;b', ';'), '"a;b"');
+  assert.deepEqual(parseRanges('a,b\n').length, 1);
+});

@@ -10,13 +10,31 @@
 //   state/<device>/session.json    this device's open tabs and layout (hot exit)
 //   state/<device>/backups/<id>.txt
 //                                  unsaved edits of open files, restored on start
+//   history/<note>-<hash>/<date-time>_<device>.txt
+//                                  earlier versions of a note, kept as it is saved
+//                                  (File → History; settings historyKept, historyMinutes)
 //
 // The web app keeps session and backups in the browser (localStorage) instead:
 // they belong to that browser, not to the server.
-import { join, isInside } from './paths.js';
+import { join, isInside, relative, basename } from './paths.js';
 import { appDirOf } from './settings.js';
 
 const ID_RE = /^[a-z0-9]{1,64}$/;
+const HISTORY_RE = /^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)_(.+)\.txt$/;
+const HISTORY_MAX = 2 * 1024 * 1024; // larger files are not copied
+
+// FNV-1a, as 8 hex digits: a short, stable name for a path.
+export function hash32(s) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+// "projects/My plan.md" -> "My-plan.md-1a2b3c4d" (the history folder of a note).
+export function historyKey(rel) {
+  const name = basename(rel).normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'note';
+  return `${name}-${hash32(rel)}`;
+}
 
 // "Nihar's ThinkPad" -> "Nihars-ThinkPad"; used in file names.
 export function deviceSlug(name) {
@@ -36,6 +54,7 @@ export class Store {
     this.settings = settings;
     // the web app (and the in-memory demo) use the backend's own session storage
     this.files = backend.kind !== 'web' && !backend.demo && typeof backend.remove === 'function';
+    this.lastVersion = new Map(); // path -> when its last history copy was made
   }
 
   get device() { return deviceSlug(this.backend.deviceName || this.backend.platform); }
@@ -113,6 +132,42 @@ export class Store {
     const ids = items.filter((i) => !i.dir && i.name.endsWith('.txt')).map((i) => i.name.slice(0, -4)).filter((id) => ID_RE.test(id));
     if (this.legacy) for (const id of await this.backend.backupList?.().catch(() => []) || []) if (!ids.includes(id)) ids.push(id);
     return ids;
+  }
+
+  // ── history: earlier versions of notes ───────────────────
+  // Only notes inside the notes folder (not the app's own files) have one.
+  historyDir(path) {
+    const root = this.backend.notesRoot;
+    if (root == null || !path || this.backend.readOnly || typeof this.backend.remove !== 'function') return null;
+    if (!isInside(path, root) || isInside(path, this.appDir)) return null;
+    return join(this.appDir, 'history', historyKey(relative(path, root)));
+  }
+
+  // Keeps a copy of what was just saved: at most one per `minutes`, the newest `kept`.
+  async addVersion(path, bytes, { kept = this.settings.get('historyKept'), minutes = this.settings.get('historyMinutes'), now = Date.now() } = {}) {
+    const dir = this.historyDir(path);
+    if (!dir || kept < 1 || bytes.length > HISTORY_MAX) return false;
+    const last = this.lastVersion.get(path);
+    if (last != null && now - last < minutes * 60000) return false;
+    this.lastVersion.set(path, now);
+    await this.backend.mkdirAll(dir);
+    await this.backend.write(join(dir, `${stamp(new Date(now))}_${this.device}.txt`), bytes, null);
+    const old = (await this.versions(path)).slice(kept);
+    for (const v of old) await this.backend.remove(v.path).catch(() => {});
+    return true;
+  }
+
+  // [{ path, time, device, size }], newest first.
+  async versions(path) {
+    const dir = this.historyDir(path);
+    if (!dir || !(await this.backend.stat(dir).catch(() => null))) return [];
+    const items = await this.backend.list(dir).catch(() => []);
+    const out = [];
+    for (const i of items) {
+      const m = !i.dir && HISTORY_RE.exec(i.name);
+      if (m) out.push({ path: join(dir, i.name), time: new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]), device: m[7], size: i.size });
+    }
+    return out.sort((a, b) => b.time - a.time || b.path.localeCompare(a.path));
   }
 
   // After the first restore, everything lives in the app folder.

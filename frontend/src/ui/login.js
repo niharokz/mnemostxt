@@ -8,29 +8,32 @@ import { APP_NAME } from '../core/brand.js';
 export function showLogin(backend) {
   const user = h('input', { name: 'user', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false', required: true });
   const pass = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
+  // only when the server asks for an authenticator code (MNEMOSTXT_TOTP_SECRET)
+  const code = backend.totp ? h('input', { name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9 ]*', maxlength: 7, placeholder: '6 digits', spellcheck: 'false' }) : null;
   const err = h('p.err', { role: 'alert' });
   const btn = h('button.primary.block', { type: 'submit' }, 'Sign in');
   const demo = backend.demoUser;
 
-  const submit = async (u, p) => {
+  const submit = async (u, p, c = '') => {
     btn.disabled = true;
     btn.textContent = 'Signing in…';
     err.textContent = '';
     try {
-      await backend.login(u, p);
+      await backend.login(u, p, c);
       location.reload();
     } catch (ex) {
       err.textContent = ex.message;
       btn.disabled = false;
       btn.textContent = 'Sign in';
-      pass.select();
+      (code && code.value ? code : pass).select();
     }
   };
 
-  const form = h('form.card.login', { onsubmit: (e) => { e.preventDefault(); submit(user.value, pass.value); } },
+  const form = h('form.card.login', { onsubmit: (e) => { e.preventDefault(); submit(user.value, pass.value, code?.value || ''); } },
     h('div.login-brand', {}, logo(30), h('span.brand', {}, APP_NAME)),
     h('label.f', {}, h('span', {}, 'Username'), user),
     h('label.f', {}, h('span', {}, 'Password'), pass),
+    code ? h('label.f', {}, h('span', {}, 'Authenticator code'), code) : null,
     btn, err,
     demo ? h('div.demo-box', {},
       h('b', {}, 'Try the demo'), ' (read-only, sample notes)', h('br'),

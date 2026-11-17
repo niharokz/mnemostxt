@@ -7,6 +7,7 @@
 //! view that cannot send raw bytes, uses the base64 pair read_file / write_file.
 
 mod files;
+mod guard;
 mod search;
 mod session;
 #[cfg(desktop)]
@@ -60,8 +61,21 @@ fn data_dir(app: &AppHandle) -> Res<PathBuf> {
 fn config_dir(app: &AppHandle) -> Res<PathBuf> {
     app.path().app_config_dir().map_err(|e| err("IO", e))
 }
+/// A path from the frontend, for reading. Refused when it (or what a link in
+/// it points to) is a credential store or a protected system file (guard.rs).
 fn p(app: &AppHandle, s: &str) -> Res<PathBuf> {
-    files::arg(s, home(app).as_deref())
+    checked(app, s, guard::Access::Read)
+}
+/// The same, for anything that changes the disk (system folders refused too).
+fn pw(app: &AppHandle, s: &str) -> Res<PathBuf> {
+    checked(app, s, guard::Access::Write)
+}
+fn checked(app: &AppHandle, s: &str, access: guard::Access) -> Res<PathBuf> {
+    let h = home(app);
+    let path = files::arg(s, h.as_deref())?;
+    let h = h.map(|h| util::canonical_or_self(&h));
+    guard::check(&util::canonical_or_self(&path), h.as_deref(), access, &path)?;
+    Ok(path)
 }
 
 /// Files and folders named on the command line ("mnemostxt notes.md ~/notes").
@@ -162,7 +176,7 @@ async fn write_raw(app: AppHandle, request: tauri::ipc::Request<'_>) -> Res<file
     let path = util::percent_decode(&header(&request, "x-path").ok_or_else(|| err("INVALID", "no path"))?)?;
     let expected =
         header(&request, "x-expect").filter(|s| !s.is_empty()).map(|s| s.parse::<i64>()).transpose().map_err(|e| err("INVALID", e))?;
-    files::write_bytes(&p(&app, &path)?, bytes, expected)
+    files::write_bytes(&pw(&app, &path)?, bytes, expected)
 }
 
 #[tauri::command]
@@ -172,7 +186,7 @@ async fn read_file(app: AppHandle, path: String) -> Res<files::ReadOut> {
 
 #[tauri::command]
 async fn write_file(app: AppHandle, path: String, data: String, expected_mtime: Option<i64>) -> Res<files::WriteOut> {
-    files::write(&p(&app, &path)?, &data, expected_mtime)
+    files::write(&pw(&app, &path)?, &data, expected_mtime)
 }
 
 #[tauri::command]
@@ -182,29 +196,29 @@ async fn stat_path(app: AppHandle, path: String) -> Res<Option<files::Stat>> {
 
 #[tauri::command]
 async fn mkdir_all(app: AppHandle, path: String) -> Res<()> {
-    files::mkdir_all(&p(&app, &path)?)
+    files::mkdir_all(&pw(&app, &path)?)
 }
 
 #[tauri::command]
 async fn create_file(app: AppHandle, path: String) -> Res<files::WriteOut> {
-    files::create(&p(&app, &path)?)
+    files::create(&pw(&app, &path)?)
 }
 
 #[tauri::command]
 async fn rename_path(app: AppHandle, from: String, to: String) -> Res<()> {
-    files::rename(&p(&app, &from)?, &p(&app, &to)?)
+    files::rename(&pw(&app, &from)?, &pw(&app, &to)?)
 }
 
 /// Deletes a file inside the app folder only (state, backups, empty scratch).
 #[tauri::command]
 async fn remove_file(app: AppHandle, state: State<'_, AppState>, path: String) -> Res<()> {
-    files::remove(&p(&app, &path)?, &state.notes()?, &state.app_dir())
+    files::remove(&pw(&app, &path)?, &state.notes()?, &state.app_dir())
 }
 
 #[tauri::command]
 async fn trash_path(app: AppHandle, state: State<'_, AppState>, path: String) -> Res<()> {
     let notes = state.notes.lock().unwrap().clone();
-    files::trash(&p(&app, &path)?, notes.as_deref(), &state.app_dir())
+    files::trash(&pw(&app, &path)?, notes.as_deref(), &state.app_dir())
 }
 
 #[tauri::command]
@@ -225,7 +239,8 @@ async fn search(
     max: usize,
 ) -> Res<Vec<search::Hit>> {
     let roots = roots.iter().map(|r| p(&app, r)).collect::<Res<Vec<_>>>()?;
-    let skip: Vec<PathBuf> = state.notes.lock().unwrap().as_deref().map(|n| files::app_dir(n, &state.app_dir())).into_iter().collect();
+    let mut skip: Vec<PathBuf> = state.notes.lock().unwrap().as_deref().map(|n| files::app_dir(n, &state.app_dir())).into_iter().collect();
+    skip.extend(guard::secret_dirs(home(&app).as_deref())); // never searched
     search::search(&roots, &skip, &query, regex, case_sensitive, &hidden, max.clamp(1, 10_000))
 }
 

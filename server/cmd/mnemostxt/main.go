@@ -3,6 +3,7 @@
 //	mnemostxt serve            run the server (default)
 //	mnemostxt health           exit 0 when the local server answers (Docker HEALTHCHECK)
 //	mnemostxt hash-password    read a password on stdin, print a bcrypt hash for .env
+//	mnemostxt totp-secret      print a new authenticator secret for MNEMOSTXT_TOTP_SECRET
 //	mnemostxt version
 package main
 
@@ -43,10 +44,13 @@ func main() {
 		health()
 	case "hash-password":
 		hashPassword()
+	case "totp-secret":
+		secret, link := auth.NewTOTPSecret(os.Getenv("MNEMOSTXT_USER"))
+		fmt.Printf("MNEMOSTXT_TOTP_SECRET=%s\n\nAdd it to your authenticator app by hand, or with this link:\n%s\n", secret, link)
 	case "version", "--version", "-v":
 		fmt.Println(version)
 	default:
-		fmt.Fprintf(os.Stderr, "usage: mnemostxt [serve|health|hash-password|version]\n")
+		fmt.Fprintf(os.Stderr, "usage: mnemostxt [serve|health|hash-password|totp-secret|version]\n")
 		os.Exit(2)
 	}
 }
@@ -79,9 +83,19 @@ func serve() {
 			cfg.DemoUser, cfg.DemoPass = "", ""
 		}
 	}
+	proxies, err := auth.ParseProxies(cfg.Proxies)
+	if err != nil {
+		log.Fatalf("config: MNEMOSTXT_TRUSTED_PROXIES: %v", err)
+	}
+	if cfg.TOTPSecret != "" {
+		if _, err := auth.ParseTOTPSecret(cfg.TOTPSecret); err != nil {
+			log.Fatalf("config: MNEMOSTXT_TOTP_SECRET: %v", err)
+		}
+	}
 	a := auth.New(auth.Options{
 		User: cfg.User, Password: cfg.Password, DemoUser: cfg.DemoUser, DemoPassword: cfg.DemoPass, Secret: cfg.Secret,
 		BanAfter: cfg.BanAfter, BanFor: time.Duration(cfg.BanHours) * time.Hour, BanPrivate: cfg.BanPrivate, StateDir: state,
+		TOTPSecret: cfg.TOTPSecret, TrustedProxies: proxies,
 	})
 	srv := &http.Server{
 		Addr:              cfg.Listen,

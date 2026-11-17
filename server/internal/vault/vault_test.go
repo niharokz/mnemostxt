@@ -195,3 +195,43 @@ func TestReadOnly(t *testing.T) {
 		t.Fatal("read failed")
 	}
 }
+
+// Links that stay inside the notes folder work (absolute ones too); a link
+// that leaves it is refused for reading, listing and creating.
+func TestLinksThroughRoot(t *testing.T) {
+	v := newVault(t)
+	if _, err := v.Write("real.md", []byte("hello"), -1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(v.Root, "real.md"), filepath.Join(v.Root, "abs.md")); err != nil {
+		t.Skip("symlinks not available")
+	}
+	_ = os.Symlink("real.md", filepath.Join(v.Root, "rel.md"))
+	for _, name := range []string{"abs.md", "rel.md"} {
+		if b, _, err := v.Read(name); err != nil || string(b) != "hello" {
+			t.Fatalf("read %s: %q %v", name, b, err)
+		}
+	}
+	if _, err := v.Write("abs.md", []byte("changed"), -1); err != nil {
+		t.Fatalf("write through an inside link: %v", err)
+	}
+	if b, _, _ := v.Read("real.md"); string(b) != "changed" {
+		t.Fatalf("the link's target was not written: %q", b)
+	}
+	outside := t.TempDir()
+	_ = os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("no"), 0o644)
+	_ = os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(v.Root, "leak.txt"))
+	_ = os.Symlink(outside, filepath.Join(v.Root, "out"))
+	if _, _, err := v.Read("leak.txt"); code(err) != "DENIED" {
+		t.Fatalf("read through an escaping link: %v", err)
+	}
+	if _, err := v.List("out"); code(err) != "DENIED" {
+		t.Fatalf("list through an escaping link: %v", err)
+	}
+	if _, err := v.Create("out/new.md"); code(err) != "DENIED" {
+		t.Fatalf("create through an escaping link: %v", err)
+	}
+	if l, err := v.List(""); err != nil || len(l) != 5 {
+		t.Fatalf("list: %v %v", l, err)
+	}
+}

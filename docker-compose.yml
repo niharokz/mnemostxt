@@ -26,6 +26,8 @@ services:
       MNEMOSTXT_BAN_AFTER: ${MNEMOSTXT_BAN_AFTER:-5}
       MNEMOSTXT_BAN_HOURS: ${MNEMOSTXT_BAN_HOURS:-24}
       MNEMOSTXT_BAN_PRIVATE: ${MNEMOSTXT_BAN_PRIVATE:-false}
+      MNEMOSTXT_TRUSTED_PROXIES: ${MNEMOSTXT_TRUSTED_PROXIES:-private}
+      MNEMOSTXT_TOTP_SECRET: ${MNEMOSTXT_TOTP_SECRET:-}
       MNEMOSTXT_URL_APK: ${MNEMOSTXT_URL_APK:-}
       MNEMOSTXT_URL_EXE: ${MNEMOSTXT_URL_EXE:-}
       MNEMOSTXT_URL_DEB: ${MNEMOSTXT_URL_DEB:-}
@@ -36,6 +38,8 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 512m
     networks: [proxy]
     # No published port: the reverse proxy reaches mnemostxt:8080 on the shared network.
     # For a quick local test add:  ports: ["127.0.0.1:8080:8080"]

@@ -30,10 +30,12 @@ export const DEFAULTS = Object.freeze({
   highlightActiveLine: true,
   showWhitespace: false,
   wordWrap: false,
+  typewriter: false, // keep the line being typed in the middle of the window
   // editing
   tabSize: 4,
   indentWithTabs: false,
   autoCloseBrackets: true,
+  spellcheck: false, // the browser's (or web view's) own spell checker, in the editor
   newFileEol: 'LF', // LF | CRLF
   trimTrailingWhitespaceOnSave: false,
   insertFinalNewlineOnSave: false,
@@ -44,6 +46,11 @@ export const DEFAULTS = Object.freeze({
   backupDelayMs: 700, // how soon unsaved edits are copied for hot exit
   scratchFolder: 'scratch', // new, never-saved tabs are kept here (inside the app folder)
   scratchExtension: 'txt', // scratch_<device>_<date-time>.<this>
+  historyKept: 20, // earlier versions kept per note (app folder/history); 0 = no history
+  historyMinutes: 5, // at most one version per note this often
+  // notes
+  dailyFolder: 'daily', // "Today's note" lives here (relative to the notes folder): <this>/2026-11-17.md
+  dailyTemplate: '# {date}\n\n', // text of a new daily note; {date} becomes the date
   // files
   showHidden: false,
   hidden: ['.git', '.trash', '.obsidian', '.stfolder', '.stversions', 'node_modules'],
@@ -59,15 +66,17 @@ export const DEFAULTS = Object.freeze({
   androidInbox: 'inbox', // where "Share to mnemostxt" saves (relative to the notes folder)
   androidLock: false, // ask for fingerprint, face or the screen lock
   androidLockAfterMinutes: 1, // …after this long in the background (0 = every time)
+  androidSecure: false, // hide the app's content in Recents and block screenshots
 });
 
 const ENUMS = { autosave: ['notes', 'all', 'off'], newFileEol: ['LF', 'CRLF'] };
 const RANGES = {
   fontSize: [8, 40], mobileFontSize: [8, 40], lineHeight: [1, 3], tabSize: [1, 16], autosaveDelayMs: [200, 60000], backupDelayMs: [200, 10000],
   trashDays: [1, 3650], windowOpacity: [0.2, 1], readOnlyAboveMB: [1, 50], diskCheckSeconds: [5, 3600], recentlyClosedKept: [0, 200], androidLockAfterMinutes: [0, 1440],
+  historyKept: [0, 500], historyMinutes: [0, 1440],
 };
 // Strings that become file or folder names: letters, digits, dot, dash, underscore and "/" between parts.
-const NAMEISH = { scratchFolder: /^[\w.-]+(\/[\w.-]+)*$/, scratchExtension: /^[A-Za-z0-9]{1,10}$/, androidInbox: /^[\w .-]+(\/[\w .-]+)*$/ };
+const NAMEISH = { scratchFolder: /^[\w.-]+(\/[\w.-]+)*$/, scratchExtension: /^[A-Za-z0-9]{1,10}$/, androidInbox: /^[\w .-]+(\/[\w .-]+)*$/, dailyFolder: /^[\w .-]+(\/[\w .-]+)*$/ };
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const LEGACY_THEME = { dark: 'nss-dark', light: 'nss-light' };
 

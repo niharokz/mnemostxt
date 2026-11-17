@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mnemostxt_shortcut_new">New note</string>
+    <string name="mnemostxt_shortcut_daily">Today\'s note</string>
+    <string name="mnemostxt_tile">Quick capture</string>
+</resources>

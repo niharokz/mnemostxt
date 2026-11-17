@@ -9,10 +9,11 @@ import {
 import { history, historyKeymap, standardKeymap, indentWithTab } from '@codemirror/commands';
 import { indentOnInput, indentUnit, bracketMatching, foldGutter, foldKeymap, codeFolding } from '@codemirror/language';
 import { search, highlightSelectionMatches } from '@codemirror/search';
-import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, completeAnyWord } from '@codemirror/autocomplete';
+import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { showMinimap } from '@replit/codemirror-minimap';
 import { editorTheme } from './theme.js';
 import { bookmarkGutter } from './bookmarks.js';
+import { wikiOrWord } from './wikilinks.js';
 
 const C = {
   language: new Compartment(),
@@ -24,6 +25,7 @@ const C = {
   whitespace: new Compartment(),
   activeLine: new Compartment(),
   brackets: new Compartment(),
+  spell: new Compartment(),
 };
 
 // The view's update hook; set once by the app (all states share it).
@@ -46,6 +48,8 @@ function parts(s, doc) {
     whitespace: s.showWhitespace ? [highlightWhitespace(), highlightTrailingWhitespace()] : [],
     activeLine: s.highlightActiveLine ? highlightActiveLine() : [],
     brackets: s.autoCloseBrackets ? [closeBrackets(), keymap.of(closeBracketsKeymap)] : [],
+    // the web view's own spell checker (Preferences → Editor)
+    spell: EditorView.contentAttributes.of({ spellcheck: s.spellcheck ? 'true' : 'false', autocapitalize: 'off', autocorrect: s.spellcheck ? 'on' : 'off' }),
   };
 }
 
@@ -63,6 +67,7 @@ export function createState(text, s, doc, language) {
       C.whitespace.of(p.whitespace),
       C.activeLine.of(p.activeLine),
       C.brackets.of(p.brackets),
+      C.spell.of(p.spell),
       bookmarkGutter,
       foldGutter({ openText: '▾', closedText: '▸' }),
       codeFolding(),
@@ -78,11 +83,10 @@ export function createState(text, s, doc, language) {
       highlightSelectionMatches(),
       search({ top: true }),
       autocompletion({ activateOnTyping: false, override: null }),
-      EditorState.languageData.of(() => [{ autocomplete: completeAnyWord }]),
+      EditorState.languageData.of(() => [{ autocomplete: wikiOrWord }]), // [[notes]], else any word
       // Only plain editing keys here; every Notepad++ shortcut is in editor/keymap.js.
       keymap.of([indentWithTab, ...completionKeymap, ...foldKeymap.filter((k) => !/Mod-Alt|Ctrl-Shift/.test(k.key || '')), ...historyKeymap, ...standardKeymap]),
       editorTheme,
-      EditorView.contentAttributes.of({ spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off' }),
       EditorView.updateListener.of((u) => onUpdate(u)),
     ],
   });

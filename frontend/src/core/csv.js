@@ -55,3 +55,41 @@ export function asNumber(s) {
   const t = String(s).trim().replace(/,(?=\d{3}\b)/g, '').replace(/%$/, '');
   return t !== '' && /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t) ? Number(t) : null;
 }
+
+// Like parse(), but every field keeps where it sits in the text:
+// rows of { text, from, to } (to is exclusive; quotes included). Lets one
+// cell be edited without touching the rest of the file.
+export function parseRanges(text, delim = ',') {
+  const rows = [];
+  let row = [], field = '', i = 0, quoted = false, from = 0;
+  const n = text.length;
+  if (text.charCodeAt(0) === 0xfeff) { i = 1; from = 1; }
+  const push = (to) => { row.push({ text: field, from, to }); field = ''; };
+  while (i < n) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+        quoted = false; i++; continue;
+      }
+      field += c; i++; continue;
+    }
+    if (c === '"' && field === '') { quoted = true; i++; continue; }
+    if (c === delim) { push(i); i++; from = i; continue; }
+    if (c === '\r' || c === '\n') {
+      push(i); rows.push(row); row = [];
+      i += c === '\r' && text[i + 1] === '\n' ? 2 : 1;
+      from = i;
+      continue;
+    }
+    field += c; i++;
+  }
+  if (field !== '' || row.length || from < n) { push(n); rows.push(row); }
+  return rows;
+}
+
+// A value as it is written in the file: quoted when it must be.
+export function quoteField(value, delim = ',') {
+  const v = String(value);
+  return v.includes(delim) || /["\r\n]/.test(v) || /^\s|\s$/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}

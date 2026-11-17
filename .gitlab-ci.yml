@@ -2,6 +2,8 @@
 #
 #   every push and merge request (GitLab shared runners)
 #     check    frontend tests + build, Go vet/test, Rust fmt/test, versions, no secrets, web image
+#     audit    known vulnerabilities in dependencies (npm, Go, Rust) and leaked secrets;
+#              report only for now (allow_failure), so a new advisory never blocks a release
 #   a version tag vX.Y.Z (your own Docker runner, tag "mnemostxt-app")
 #     build    mnemostxt-X.Y.Z-amd64.deb, mnemostxt-X.Y.Z-setup.exe, mnemostxt-X.Y.Z.apk
 #     release  files into the package registry + a GitLab release with permanent links:
@@ -10,7 +12,7 @@
 # Release: changes under [Unreleased] in CHANGELOG.md, then  sh scripts/release.sh  (docs/RELEASING.md)
 # Runner setup: docs/RUNNER.md
 
-stages: [check, build, release]
+stages: [check, audit, build, release]
 
 workflow:
   rules:
@@ -99,6 +101,54 @@ web-image:
     DOCKER_TLS_CERTDIR: /certs
   script:
     - docker build -t mnemostxt:ci .
+
+# ── audit ──────────────────────────────────────────────────────────────────
+npm-audit:
+  stage: audit
+  image: node:22-alpine
+  needs: []
+  allow_failure: true
+  script:
+    - cd frontend
+    - npm audit --omit=dev --audit-level=high
+
+govulncheck:
+  stage: audit
+  image: golang:1.24-alpine
+  needs: []
+  allow_failure: true
+  script:
+    - GOFLAGS= go install golang.org/x/vuln/cmd/govulncheck@latest
+    - cd server
+    - $(go env GOPATH)/bin/govulncheck ./...
+
+cargo-audit:
+  stage: audit
+  image: rust:1-bookworm
+  needs: []
+  allow_failure: true
+  rules:
+    - if: $CI_COMMIT_TAG
+    - changes: [app/Cargo.lock]
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-audit
+    paths: [.cargo/bin]
+  script:
+    - command -v cargo-audit >/dev/null || cargo install --locked cargo-audit
+    - cd app
+    - cargo audit
+
+gitleaks:
+  stage: audit
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+  needs: []
+  allow_failure: true
+  script:
+    - gitleaks dir . --redact --no-banner --config .gitleaks.toml
 
 # ── build (own runner) ─────────────────────────────────────────────────────
 # Runs on your runner's Docker executor *inside* the builder image, which you

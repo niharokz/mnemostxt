@@ -14,6 +14,7 @@ import { comboOf, normalizeCombo, applyKeybindings } from '../core/keys.js';
 import { dialogOpen } from './dialogs.js';
 import { canView } from './reader.js';
 import { APP_NAME } from '../core/brand.js';
+import { isMarkdown } from '../core/languages.js';
 
 export function buildCommands(app, ui) {
   const v = () => app.view;
@@ -35,7 +36,10 @@ export function buildCommands(app, ui) {
     { id: 'file.close', label: 'Close', keys: ['Ctrl+W', 'Ctrl+F4'], scope: 'app', run: () => app.closeDoc() },
     { id: 'file.closeAll', label: 'Close all', keys: ['Ctrl+Shift+W'], scope: 'app', run: () => app.closeAll() },
     { id: 'file.closeOthers', label: 'Close all but this', keys: [], scope: 'app', run: () => app.closeOthers() },
+    { id: 'file.history', label: 'History…', keys: [], scope: 'app', run: () => app.showHistory(), when: () => app.active?.kind === 'text' && !!app.active.path },
     { id: 'file.print', label: 'Print…', keys: ['Ctrl+P'], scope: 'app', run: () => ui.print(), when: () => app.backend.kind !== 'android' },
+    { id: 'file.printView', label: 'Print the rendered note (PDF)…', keys: [], scope: 'app', run: () => ui.printRendered(), when: () => app.backend.kind !== 'android' && canView(app.active) },
+    { id: 'file.exportHtml', label: 'Export as HTML…', keys: [], scope: 'app', run: () => ui.exportHtml(), when: () => app.active?.kind === 'text' && isMarkdown(app.active.path || app.active.untitled || '') },
     { id: 'file.exit', label: 'Exit', keys: ['Alt+F4'], scope: 'app', run: async () => { await app.flush(); app.backend.quit?.(); }, when: () => desktop, passive: true },
     { id: 'tab.next', label: 'Next tab', keys: ['Ctrl+Tab', 'Ctrl+PageDown'], scope: 'app', run: () => app.nextTab(1) },
     { id: 'tab.prev', label: 'Previous tab', keys: ['Ctrl+Shift+Tab', 'Ctrl+PageUp'], scope: 'app', run: () => app.nextTab(-1) },
@@ -82,6 +86,7 @@ export function buildCommands(app, ui) {
     { id: 'edit.allOccurrences', label: 'Select all occurrences', keys: ['Alt+F3'], run: ed(selectSelectionMatches) },
     { id: 'edit.dateTime', label: 'Insert date and time', keys: [], run: ed((view) => view.dispatch(view.state.replaceSelection(new Date().toLocaleString()))) },
     { id: 'edit.readOnly', label: 'Read-only', keys: [], run: () => ui.toggleReadOnly(), checked: () => !!app.active?.readOnly },
+    { id: 'edit.spellcheck', label: 'Check spelling', keys: [], scope: 'app', run: () => app.settings.set({ spellcheck: !app.settings.get('spellcheck') }), checked: () => app.settings.get('spellcheck') },
 
     // Search
     { id: 'search.find', label: 'Find…', keys: ['Ctrl+F'], run: ed(openSearchPanel) },
@@ -113,8 +118,21 @@ export function buildCommands(app, ui) {
     { id: 'view.unfoldAll', label: 'Unfold all', keys: ['Alt+Shift+0'], run: ed(unfoldAll) },
     { id: 'view.fold', label: 'Fold current level', keys: ['Ctrl+Alt+F'], run: ed(foldCode) },
     { id: 'view.unfold', label: 'Unfold current level', keys: ['Ctrl+Alt+Shift+F'], run: ed(unfoldCode) },
+    { id: 'view.zen', label: 'Focus mode', keys: ['Ctrl+Alt+Z'], scope: 'app', run: () => ui.toggleZen(), checked: () => document.body.classList.contains('zen') },
+    { id: 'view.typewriter', label: 'Typewriter scrolling', keys: [], scope: 'app', run: () => app.settings.set({ typewriter: !app.settings.get('typewriter') }), checked: () => app.settings.get('typewriter') },
     { id: 'view.fullscreen', label: 'Full screen', keys: ['F11'], scope: 'app', run: () => app.backend.toggleFullscreen?.(), when: () => app.backend.kind !== 'android' },
     { id: 'view.opacity', label: 'Window opacity…', keys: [], scope: 'app', run: () => ui.showSettings('appearance'), when: () => desktop },
+
+    // Notes: links, daily note, encryption
+    { id: 'note.daily', label: "Today's note", keys: ['Alt+D'], scope: 'app', run: () => app.dailyNote(), when: () => app.backend.notesRoot != null },
+    { id: 'note.gotoFile', label: 'Go to file…', keys: ['Ctrl+Shift+O'], scope: 'app', run: () => ui.gotoFile(), when: () => app.backend.notesRoot != null },
+    { id: 'note.outline', label: 'Go to heading…', keys: ['Ctrl+Shift+G'], scope: 'app', run: () => ui.gotoHeading(), when: () => app.active?.kind === 'text' },
+    { id: 'note.follow', label: 'Open link under cursor', keys: ['Alt+Enter'], run: () => app.followLink() },
+    { id: 'note.backlinks', label: 'Notes that link here', keys: [], scope: 'app', run: () => app.backlinks(), when: () => !!app.active?.path },
+    { id: 'note.tag', label: 'Find tag…', keys: [], scope: 'app', run: () => app.findTag() },
+    { id: 'note.encrypt', label: 'Encrypt this note… / change passphrase', keys: [], scope: 'app', run: () => app.encryptDoc(), when: () => app.active?.kind === 'text' && !app.active.readOnly },
+    { id: 'note.decrypt', label: 'Remove encryption…', keys: [], scope: 'app', run: () => app.removeEncryption(), when: () => !!app.active?.crypto },
+    { id: 'note.lock', label: 'Lock encrypted notes', keys: [], scope: 'app', run: () => app.lockAll(), when: () => app.docs.some((d) => d.crypto) },
 
     // Settings and help
     { id: 'settings.open', label: 'Preferences…', keys: ['Ctrl+,'], scope: 'app', run: () => ui.showSettings() },

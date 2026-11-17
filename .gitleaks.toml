@@ -1,0 +1,15 @@
+# gitleaks (CI job "gitleaks"): the default rules, minus test fixtures and
+# vendored code. Real secrets live in .env and the key folder, never here.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "test fixtures, vendored and generated files"
+paths = [
+  '''server/vendor/''',
+  '''_test\.go$''',
+  '''frontend/test/''',
+  '''package-lock\.json$''',
+  '''Cargo\.lock$''',
+  '''\.env\.example$''',
+]

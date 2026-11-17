@@ -1,6 +1,7 @@
 // The app controller: open documents, the one editor view, saving, autosave,
 // hot exit (session + backups of unsaved edits, core/store.js), scratch files
-// for new tabs, and disk-change detection.
+// for new tabs, disk-change detection, encrypted notes, note history, links
+// between notes and the daily note.
 // UI pieces (menu, tree, tabs, status bar, panels) talk to it, never to each other.
 import { EditorView } from '@codemirror/view';
 import { EditorSelection, Text } from '@codemirror/state';
@@ -12,6 +13,13 @@ import { basename, dirname, extname, join, isInside, pretty, relative, validName
 import { trashDirOf } from '../core/settings.js';
 import { Store } from '../core/store.js';
 import { resolveTheme, themeIdFor, applyTheme } from '../core/themes.js';
+import { FileIndex } from '../core/fileindex.js';
+import { isEncrypted, newLock, encryptBytes, decryptBytes, cryptoAvailable } from '../core/crypto.js';
+import { resolveWiki, wikiLinkAt, tagAt, headings, backlinkPattern, tagPattern, countWords, isoDate } from '../core/wiki.js';
+import { setWikiProvider } from '../editor/wikilinks.js';
+import { startCompletion } from '@codemirror/autocomplete';
+import { showDiff } from './diffView.js';
+import { pick } from './picker.js';
 import { confirm, prompt, sheet, toast, alert } from './dialogs.js';
 import { debounce, h } from './dom.js';
 import { APP_NAME } from '../core/brand.js';
@@ -19,6 +27,7 @@ import { APP_NAME } from '../core/brand.js';
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.avif', '.svg']);
 const MAX_OPEN = 50 * 1024 * 1024; // refuse beyond this (the Rust side and the server agree)
 
+const lf = (t) => t.replace(/\r\n?/g, '\n'); // the editor's line endings
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
 export class App {
@@ -39,6 +48,9 @@ export class App {
     this.autosaveTimers = new Map();
     this.backupTimers = new Map();
 
+    this.index = new FileIndex(backend, settings); // every file of the notes folder, built when first needed
+    this.on('tree-changed', () => this.index.invalidate());
+    setWikiProvider(() => this.noteNames());
     setUpdateHandler((u) => this.onEditorUpdate(u));
     this.view = new EditorView({ parent: h('div.editor-host') });
     settings.onChange((keys) => this.onSettings(keys));
@@ -89,9 +101,9 @@ export class App {
     const s = this.settings.values;
     const has = (...k) => !keys || k.some((x) => keys.includes(x));
     if (be.setTray && has('keepInTray')) be.setTray(s.keepInTray).catch((e) => { if (s.keepInTray) toast(`Tray: ${e.message}`, { error: true, ms: 6000 }); });
-    if (be.android && has('androidInbox', 'androidLock', 'androidLockAfterMinutes')) {
+    if (be.android && has('androidInbox', 'androidLock', 'androidLockAfterMinutes', 'androidSecure')) {
       try {
-        be.android.configure({ notesDir: be.notesRoot, appDir: be.appDir, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes });
+        be.android.configure({ notesDir: be.notesRoot, appDir: be.appDir, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes, secure: s.androidSecure });
       } catch (e) { console.warn('android configure', e); }
     }
   }
@@ -127,9 +139,49 @@ export class App {
       if (!d.path && !d.readOnly) this.startScratch(d);
       this.scheduleAutosave(d);
       this.scheduleBackup(d);
+      d.words = null;
       this.emit('content', d);
+      // typing "[[" in markdown offers the notes to link to
+      if (u.transactions.some((t) => t.isUserEvent('input.type')) && isMarkdown(d.path || d.untitled || '')) {
+        const head = u.state.selection.main.head;
+        if (u.state.sliceDoc(Math.max(0, head - 2), head) === '[[') setTimeout(() => { if (this.active === d) startCompletion(this.view); }, 0);
+      }
     }
-    if (u.docChanged || u.selectionSet) { this.emit('cursor', d); this.saveSession(); }
+    if (u.docChanged || u.selectionSet) {
+      this.emit('cursor', d);
+      this.saveSession();
+      // typewriter mode: the line being typed stays in the middle of the window
+      if (this.settings.get('typewriter') && u.transactions.some((t) => t.isUserEvent('input') || t.isUserEvent('delete') || t.isUserEvent('select'))) {
+        requestAnimationFrame(() => { if (this.active === d) this.view.dispatch({ effects: EditorView.scrollIntoView(this.view.state.selection.main.head, { y: 'center' }) }); });
+      }
+    }
+  }
+
+  // Words in a text document (status bar); counted once per change.
+  wordsOf(d) {
+    if (d.words == null) d.words = d.state.doc.length > 2_000_000 ? -1 : countWords(this.textOf(d));
+    return d.words;
+  }
+
+  // One undoable change to a text document, active or not.
+  edit(d, changes, userEvent = 'input') {
+    if (d?.kind !== 'text' || d.readOnly) return false;
+    const spec = { changes, userEvent };
+    if (this.active === d) this.view.dispatch(spec);
+    else { d.state = d.state.update(spec).state; d.wasDirty = this.dirty(d); d.words = null; this.scheduleAutosave(d); this.scheduleBackup(d); this.emit('docs'); }
+    return true;
+  }
+
+  // Replaces the whole text, touching only the part that differs.
+  replaceText(d, text, userEvent = 'input.replace') {
+    const old = this.textOf(d);
+    if (old === text) return false;
+    let a = 0;
+    const max = Math.min(old.length, text.length);
+    while (a < max && old.charCodeAt(a) === text.charCodeAt(a)) a++;
+    let b = 0;
+    while (b < max - a && old.charCodeAt(old.length - 1 - b) === text.charCodeAt(text.length - 1 - b)) b++;
+    return this.edit(d, { from: a, to: old.length - b, insert: text.slice(a, text.length - b) }, userEvent);
   }
 
   // ── opening ──────────────────────────────────────────────
@@ -239,11 +291,14 @@ export class App {
     this.checkConflictCopies(doc);
     if (isMarkdown(path) && this.settings.get('markdownPreviewOnOpen') && !this.mobile) this.setPreview(true);
     this.saveSession();
+    if (doc.kind === 'locked' && opts.focus !== false && !opts.locked) return this.unlock(doc, opts); // asks for the passphrase
     return doc;
   }
 
   docFromBytes(path, r, opts = {}) {
     const ext = extname(path);
+    // an encrypted note stays locked until its passphrase is given (unlock())
+    if (!opts.plain && isEncrypted(r.bytes)) return { id: uid(), path, kind: 'locked', bytes: r.bytes, mtime: r.mtime, size: r.size };
     if (!opts.asText && IMAGE_EXT.has(ext)) return { id: uid(), path, kind: 'image', bytes: r.bytes, mtime: r.mtime, size: r.size };
     if (!opts.asText && ext === '.pdf') return { id: uid(), path, kind: 'pdf', bytes: r.bytes, mtime: r.mtime, size: r.size };
     if (!opts.asText && !opts.encoding && looksBinary(r.bytes)) return { id: uid(), path, kind: 'binary', bytes: r.bytes, mtime: r.mtime, size: r.size };
@@ -263,6 +318,94 @@ export class App {
     this.active = null;
     this.activate(d);
     this.emit('docs');
+  }
+
+  // ── encrypted notes (core/crypto.js) ─────────────────────
+  // The passphrase is asked for once per note and app start; the last one
+  // that worked is tried first for the next note. Nothing is written down.
+  async askPassphrase(title, note = '') {
+    const v = await prompt(title, { label: 'Passphrase', type: 'password', ok: 'Unlock', note });
+    return v || null;
+  }
+
+  // bytes of an encrypted file → plain bytes, asking for the passphrase when
+  // the kept key does not fit. Returns null when the user gives up.
+  async decrypt(bytes, lock, name) {
+    const fail = (e) => { if (e.code !== 'WRONG') toast(e.message, { error: true }); return e.code === 'WRONG'; };
+    // first what is already known: this note's key, else the last passphrase that worked
+    const known = lock ? { lock } : this.lastPass != null ? { passphrase: this.lastPass } : null;
+    if (known) { try { return await decryptBytes(bytes, known); } catch (e) { if (!fail(e)) return null; } }
+    for (let i = 0; ; i++) {
+      const pass = await this.askPassphrase(`Unlock ${name}`, i ? 'That passphrase did not fit. Try again.' : 'This note is encrypted.');
+      if (pass == null) return null;
+      try {
+        const r = await decryptBytes(bytes, { passphrase: pass });
+        this.lastPass = pass;
+        return r;
+      } catch (e) { if (!fail(e)) return null; }
+    }
+  }
+
+  // Turns a locked tab into an editable one.
+  async unlock(doc, opts = {}) {
+    if (doc?.kind !== 'locked') return doc;
+    if (!cryptoAvailable()) { alert('Cannot unlock here', 'This browser does not offer encryption on this address (it needs https or localhost).'); return doc; }
+    const r = await this.decrypt(doc.bytes, null, basename(doc.path));
+    const i = this.docs.indexOf(doc);
+    if (!r || i < 0) return doc;
+    const d = this.docFromBytes(doc.path, { bytes: r.plain, mtime: doc.mtime, size: r.plain.length }, { plain: true, asText: true });
+    d.id = doc.id;
+    d.crypto = r.lock;
+    d.conflictCopies = doc.conflictCopies;
+    this.docs[i] = d;
+    if (this.active === doc) { this.active = null; this.activate(d, opts); } else this.emit('docs');
+    if (opts.line) this.gotoLine(opts.line, opts.col);
+    this.store.backupDelete(d.id).catch(() => {});
+    this.saveSession();
+    return d;
+  }
+
+  // Encrypts the active note with a new passphrase (or changes it).
+  async encryptDoc(d = this.active) {
+    if (d?.kind !== 'text' || d.readOnly) return;
+    if (!cryptoAvailable()) { alert('Cannot encrypt here', 'This browser does not offer encryption on this address (it needs https or localhost).'); return; }
+    if (!d.path || this.isScratch(d)) { if (!(await this.saveAs(d))) return; }
+    const one = await prompt(d.crypto ? 'New passphrase' : 'Encrypt this note', { label: 'Passphrase', type: 'password', ok: 'Next', note: 'There is no way to recover a forgotten passphrase: the note would be lost. Search and the widgets cannot read encrypted notes.' });
+    if (!one) return;
+    const two = await prompt('Repeat the passphrase', { label: 'Passphrase', type: 'password', ok: 'Encrypt' });
+    if (two == null) return;
+    if (one !== two) { toast('The two passphrases differ', { error: true }); return; }
+    d.crypto = await newLock(one);
+    this.lastPass = one;
+    this.store.backupDelete(d.id).catch(() => {});
+    // earlier versions were kept as plain text: remove them
+    for (const v of await this.store.versions(d.path).catch(() => [])) await this.backend.remove(v.path).catch(() => {});
+    this.store.lastVersion.delete(d.path);
+    d.savedDoc = Text.of(['\u0000changed']); // the bytes on disk differ now
+    this.markChanged(d);
+    if (await this.save(d, { auto: true })) toast('Encrypted. Keep the passphrase safe.', { ms: 4000 });
+  }
+
+  async removeEncryption(d = this.active) {
+    if (d?.kind !== 'text' || !d.crypto) return;
+    if (!(await confirm('Remove encryption?', `${this.displayName(d)} will be saved as plain text again.`, { ok: 'Remove encryption', danger: true }))) return;
+    d.crypto = null;
+    d.savedDoc = Text.of(['\u0000changed']);
+    this.markChanged(d);
+    await this.save(d, { auto: true });
+  }
+
+  // Locks every unlocked note again and forgets the passphrase.
+  async lockAll() {
+    this.lastPass = null;
+    let n = 0;
+    for (const d of [...this.docs]) {
+      if (d.kind !== 'text' || !d.crypto || !d.path) continue;
+      if (this.dirty(d) && !(await this.save(d, { auto: true }))) continue;
+      await this.open(d.path, { reload: true, locked: true, focus: this.active === d });
+      n++;
+    }
+    toast(n ? `Locked ${n} note${n > 1 ? 's' : ''}` : 'No unlocked notes');
   }
 
   activate(doc, { focus = true } = {}) {
@@ -343,7 +486,10 @@ export class App {
     d.saving = true;
     this.emit('saving', d);
     try {
-      const r = await this.backend.write(d.path, encode(snapshot.toString(), d.encoding, d.eol), overwrite ? null : d.mtime);
+      let bytes = encode(snapshot.toString(), d.encoding, d.eol);
+      if (d.crypto) bytes = await encryptBytes(bytes, d.crypto);
+      const r = await this.backend.write(d.path, bytes, overwrite ? null : d.mtime);
+      this.store.addVersion(d.path, bytes).catch((e) => console.warn('history', e)); // File → History
       d.mtime = r.mtime;
       d.savedDoc = snapshot;
       d.conflict = null;
@@ -431,12 +577,13 @@ export class App {
 
   scheduleBackup(d) {
     clearTimeout(this.backupTimers.get(d.id));
+    if (d.crypto) return; // an encrypted note's text is never copied anywhere in plain
     this.backupTimers.set(d.id, setTimeout(() => this.backupNow(d), this.settings.get('backupDelayMs')));
   }
 
   backupNow(d) {
     clearTimeout(this.backupTimers.get(d.id));
-    if (!this.docs.includes(d) || d.kind !== 'text') return Promise.resolve();
+    if (!this.docs.includes(d) || d.kind !== 'text' || d.crypto) return Promise.resolve();
     return (this.dirty(d) ? this.store.backupWrite(d.id, this.textOf(d)) : this.store.backupDelete(d.id)).catch(() => {});
   }
 
@@ -447,6 +594,13 @@ export class App {
     let r;
     try { r = await this.backend.read(d.path); } catch (e) { toast(e.message, { error: true }); return; }
     if (d.kind !== 'text') { Object.assign(d, { bytes: r.bytes, mtime: r.mtime, size: r.size }); this.emit('active', d); return; }
+    if (isEncrypted(r.bytes)) {
+      if (!d.crypto) { await this.open(d.path, { reload: true, focus: this.active === d }); return; } // encrypted elsewhere: lock the tab
+      const dec = await this.decrypt(r.bytes, d.crypto, this.displayName(d));
+      if (!dec) return;
+      d.crypto = dec.lock;
+      r.bytes = dec.plain;
+    } else if (d.crypto) d.crypto = null; // plain text on disk now
     const { text, encoding: enc, eol } = decode(r.bytes, encoding);
     const sel = d.state.selection.main.head;
     const spec = { changes: { from: 0, to: d.state.doc.length, insert: text }, selection: EditorSelection.cursor(Math.min(sel, text.length)), userEvent: 'reload' };
@@ -627,6 +781,171 @@ export class App {
     } catch { /* listing is best effort */ }
   }
 
+  // What a sync-conflict copy holds, next to this note: keep mine, or take theirs.
+  async compareConflict(d, copy) {
+    if (d?.kind !== 'text') { this.open(copy); return; }
+    let r;
+    try { r = await this.backend.read(copy); } catch (e) { toast(e.message, { error: true }); return; }
+    let bytes = r.bytes;
+    if (isEncrypted(bytes)) { const dec = await this.decrypt(bytes, d.crypto, basename(copy)); if (!dec) return; bytes = dec.plain; }
+    const theirs = lf(decode(bytes).text);
+    const v = await showDiff({
+      title: 'Sync conflict', fromLabel: this.displayName(d), toLabel: basename(copy), from: this.textOf(d), to: theirs,
+      actions: [{ label: 'Open the copy', value: 'open' }, ...(d.readOnly ? [] : [{ label: 'Use theirs', value: 'theirs' }, { label: 'Keep mine', value: 'mine', primary: true }])],
+    });
+    if (v === 'open') { this.open(copy); return; }
+    if (v !== 'mine' && v !== 'theirs') return;
+    if (v === 'theirs') this.replaceText(d, theirs, 'input.conflict');
+    try { await this.backend.trash(copy); } catch (e) { toast(e.message, { error: true }); return; }
+    for (const o of [...this.docs]) if (o.path === copy) await this.closeDoc(o, { force: true });
+    this.emit('tree-changed', dirname(copy));
+    await this.checkConflictCopies(d);
+    this.emit('docs');
+    toast(v === 'mine' ? 'Kept your version; the copy is in the trash' : 'Took their version (Ctrl+Z undoes it); the copy is in the trash', { ms: 4500 });
+  }
+
+  // ── history: earlier versions of a note (core/store.js) ──
+  async showHistory(d = this.active) {
+    if (d?.kind !== 'text' || !d.path) return;
+    const versions = await this.store.versions(d.path).catch(() => []);
+    if (!versions.length) { toast(this.store.historyDir(d.path) ? 'No earlier versions yet: one is kept as the note is saved' : 'History is kept for notes in the notes folder'); return; }
+    const kb = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+    const chosen = await pick({ title: `History of ${this.displayName(d)}`, placeholder: 'Filter by date or device', items: versions.map((v) => ({ label: v.time.toLocaleString(), detail: `${v.device} · ${kb(v.size)}`, value: v })) });
+    if (!chosen) return;
+    let r;
+    try { r = await this.backend.read(chosen.path); } catch (e) { toast(e.message, { error: true }); return; }
+    let bytes = r.bytes;
+    if (isEncrypted(bytes)) { const dec = await this.decrypt(bytes, d.crypto, this.displayName(d)); if (!dec) return; bytes = dec.plain; }
+    const old = lf(decode(bytes).text);
+    const v = await showDiff({
+      title: `${this.displayName(d)} — ${chosen.time.toLocaleString()}`, fromLabel: 'now', toLabel: 'that version', from: this.textOf(d), to: old,
+      actions: d.readOnly ? [] : [{ label: 'Restore this version', value: 'restore', primary: true }],
+    });
+    if (v === 'restore' && this.replaceText(d, old, 'input.restore')) toast('Restored (Ctrl+Z undoes it)');
+  }
+
+  // ── links between notes ──────────────────────────────────
+  // Names offered after "[[": the file stem, or the path when two notes share a stem.
+  async noteNames() {
+    const files = (await this.index.files()).filter((f) => isMarkdown(f.rel));
+    const count = new Map();
+    const stemOf = (f) => basename(f.rel).replace(/\.[^.]+$/, '');
+    for (const f of files) count.set(stemOf(f).toLowerCase(), (count.get(stemOf(f).toLowerCase()) || 0) + 1);
+    return files.map((f) => ({ label: count.get(stemOf(f).toLowerCase()) > 1 ? f.rel.replace(/\.[^./]+$/, '') : stemOf(f), detail: dirname(f.rel) || '' }));
+  }
+
+  // Opens the note a [[link]] names; offers to create it when there is none.
+  async openWiki(target, heading = '', { view = false } = {}) {
+    const from = this.active?.path || '';
+    if (!target) { if (heading) this.gotoHeading(heading); return null; }
+    if (this.backend.notesRoot == null) return null;
+    let hit = resolveWiki(target, await this.index.files(), from);
+    if (!hit) {
+      if (this.backend.readOnly) { toast(`No note called "${target}"`); return null; }
+      const parts = (/\.[A-Za-z0-9]{1,8}$/.test(target) ? target : target + '.md').split('/').map((x) => x.trim()).filter(Boolean);
+      if (!parts.length || !parts.every(validName)) { toast('That link is not a valid file name', { error: true }); return null; }
+      const dir = !target.includes('/') && from && this.inNotes(from) && !this.isScratch(this.active) ? dirname(from) : this.backend.notesRoot;
+      const path = join(dir, ...parts);
+      if (!(await confirm('Create note?', `There is no note called "${target}" yet. Create ${relative(path, this.backend.notesRoot)}?`, { ok: 'Create' }))) return null;
+      try {
+        await this.backend.mkdirAll(dirname(path));
+        await this.backend.createFile(path);
+      } catch (e) { if (e.code !== 'EXISTS') { toast(e.message, { error: true }); return null; } }
+      this.emit('tree-changed', dirname(path));
+      hit = { path };
+    }
+    const d = await this.open(hit.path);
+    if (d && view && d.kind === 'text' && isMarkdown(d.path)) this.setView(d, true);
+    if (d && heading) this.gotoHeading(heading);
+    return d;
+  }
+
+  gotoHeading(text) {
+    const d = this.active;
+    if (d?.kind !== 'text' || d.view) return;
+    const want = text.trim().toLowerCase();
+    const all = headings(this.textOf(d));
+    const hit = all.find((x) => x.text.toLowerCase() === want) || all.find((x) => x.text.toLowerCase().includes(want));
+    if (hit) this.gotoLine(hit.line);
+  }
+
+  // Alt+Enter: opens the [[link]], [text](link) or #tag under the cursor.
+  async followLink() {
+    const d = this.active;
+    if (d?.kind !== 'text') return;
+    const st = this.view.state;
+    const line = st.doc.lineAt(st.selection.main.head);
+    const off = st.selection.main.head - line.from;
+    const wiki = wikiLinkAt(line.text, off);
+    if (wiki) { await this.openWiki(wiki.target, wiki.heading); return; }
+    for (const m of line.text.matchAll(/\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<?(https?:\/\/[^\s<>)\]]+)>?/g)) {
+      if (off < m.index || off > m.index + m[0].length) continue;
+      const href = m[1] || m[2];
+      if (/^(https?:|mailto:)/i.test(href)) { this.emit('open-external', href); return; }
+      const target = decodeURIComponent(href.split('#')[0]);
+      const base = d.path ? dirname(d.path) : this.backend.notesRoot;
+      if (target && base != null) await this.open(target.startsWith('/') ? join(this.backend.notesRoot, target) : join(base, target));
+      return;
+    }
+    const tag = tagAt(line.text, off);
+    if (tag) { this.emit('search', { query: tagPattern(tag), regex: true }); return; }
+    toast('No link under the cursor');
+  }
+
+  // Find in files for every note that links to this one.
+  backlinks(d = this.active) {
+    if (!d?.path) return;
+    this.emit('search', { query: backlinkPattern(d.path), regex: true });
+  }
+
+  async findTag() {
+    const d = this.active;
+    let tag = null;
+    if (d?.kind === 'text') { const st = this.view.state; const line = st.doc.lineAt(st.selection.main.head); tag = tagAt(line.text, st.selection.main.head - line.from); }
+    tag ??= (await prompt('Find tag', { label: 'Tag', placeholder: 'work', ok: 'Find' }))?.trim().replace(/^#/, '');
+    if (tag) this.emit('search', { query: tagPattern(tag), regex: true });
+  }
+
+  // Today's note: <notes>/<dailyFolder>/2026-11-17.md, made from the template when new.
+  async dailyNote() {
+    const root = this.backend.notesRoot;
+    if (root == null) return;
+    const date = isoDate();
+    const path = join(root, this.settings.get('dailyFolder'), date + '.md');
+    if (!(await this.backend.stat(path).catch(() => null))) {
+      if (this.backend.readOnly) { toast('The demo is read-only'); return; }
+      try {
+        await this.backend.mkdirAll(dirname(path));
+        await this.backend.write(path, encode(this.settings.get('dailyTemplate').replaceAll('{date}', date), 'UTF-8', this.settings.get('newFileEol')), null);
+      } catch (e) { toast(e.message, { error: true }); return; }
+      this.emit('tree-changed', dirname(path));
+    }
+    const d = await this.open(path);
+    if (d?.kind === 'text') this.gotoLine(d.state.doc.lines);
+  }
+
+  // Find in files → Replace all, for one file. Open files change in their tab
+  // (undoable); others are rewritten on disk, with the old text kept in History.
+  async replaceInFile(path, re, repl) {
+    const count = (text) => { let n = 0; for (const m of text.matchAll(re)) if (m[0] !== '') n++; return n; };
+    const d = this.findDoc(path);
+    if (d) {
+      if (d.kind !== 'text' || d.readOnly) return 0;
+      const text = this.textOf(d);
+      const n = count(text);
+      return n && this.replaceText(d, text.replace(re, repl), 'input.replace') ? n : 0;
+    }
+    const r = await this.backend.read(path);
+    if (isEncrypted(r.bytes) || looksBinary(r.bytes)) return 0;
+    const { text, encoding } = decode(r.bytes);
+    const n = count(text);
+    const next = n ? text.replace(re, repl) : text;
+    if (next === text) return 0;
+    await this.store.addVersion(path, r.bytes, { minutes: 0 }).catch(() => {});
+    await this.backend.write(path, encode(next, encoding, 'LF'), r.mtime); // the text still has its own line endings
+    return n;
+  }
+
   // ── disk changes ─────────────────────────────────────────
   async checkDisk() {
     for (const d of [...this.docs]) {
@@ -686,6 +1005,8 @@ export class App {
   // Writes every pending backup and the session; called before the window closes.
   async flush() {
     this.saveSession.cancel();
+    // encrypted notes have no plain backup: save them instead
+    for (const d of this.docs) if (d.kind === 'text' && d.crypto && d.path && !d.readOnly && this.dirty(d) && !d.conflict) await this.save(d, { auto: true }).catch(() => {});
     await Promise.all(this.docs.filter((d) => d.kind === 'text').map((d) => this.backupNow(d)));
     await this.writeSession();
   }

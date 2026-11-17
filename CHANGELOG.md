@@ -9,6 +9,73 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Added
+
+- **Links between notes**: `[[note]]`, `[[note|text]]`, `[[note#heading]]`, with
+  completion after `[[`. Click one in the View, or Alt+Enter in the editor; a
+  link to a missing note offers to create it. New **Notes** menu: Notes that
+  link here, Find tag (`#tag`), Go to file (Ctrl+Shift+O, fuzzy), Go to heading
+  (Ctrl+Shift+G), Today's note (Alt+D, `daily/<date>.md`, folder and template
+  in settings).
+- **Encrypted notes** (Notes → Encrypt this note): AES-256-GCM with a passphrase
+  that is asked once per app start and never stored. The status bar shows 🔒;
+  Lock encrypted notes forgets the passphrase. Unsaved edits and history of an
+  encrypted note are never kept in plain text.
+- **History**: earlier versions of each note are kept in the app folder as you
+  save (File → History…, at most `historyKept` per note, one every
+  `historyMinutes`). Compare any version with the current text and restore it
+  (Ctrl+Z undoes).
+- **Sync conflicts compared**: a Syncthing conflict copy shows a banner with
+  Compare: the two versions side by side, then Keep mine or Use theirs (the copy
+  goes to the trash).
+- **Replace all** in Find in files: open files change in their tabs (undoable),
+  others on disk (their old text is kept in History).
+- **CSV editing in the View**: double-click a cell to change it (only that cell
+  changes in the file); + Row adds a row.
+- Focus mode (Ctrl+Alt+Z), typewriter scrolling, spell check, word count in the
+  status bar.
+- Export a markdown note as one HTML file (images built in); print the rendered
+  note (the print dialog saves a PDF).
+- Android: a Quick capture tile for the quick settings; launcher shortcuts New
+  note and Today's note; Preferences → This device → Hide in Recents and block
+  screenshots.
+- Web: install it from the browser (opens offline, appears in the share menu;
+  shared text opens in a new tab).
+- Web: optional authenticator code at sign-in (`MNEMOSTXT_TOTP_SECRET`; make
+  one with `mnemostxt totp-secret`).
+- Releases: `SHA256SUMS.sig` when a signing key is in the runner's key folder;
+  CI runs `npm audit`, `govulncheck`, `cargo audit` and `gitleaks` (report only).
+
+### Changed
+
+- Rendered markdown is stricter: scripts, styles, forms, frames, inline styles
+  and event handlers are removed (a note may come from another device).
+- Desktop: the app never reads or writes credential stores (`~/.ssh`,
+  `~/.gnupg`, `~/.aws`, password stores, browser profiles, keyrings…) and never
+  writes system folders, whatever the window asks; Find in files skips them.
+  The CSP also blocks plugins, frames and form posts.
+- Web: files are opened through an `os.Root` handle on the notes folder (Go
+  1.24), so a symlink swapped in at the wrong moment still cannot lead outside.
+- Web: the sign-in cookie is SameSite=Strict; more security headers (HSTS over
+  HTTPS, COOP/CORP, Permissions-Policy, `no-referrer`); warnings at start for a
+  plain password or a short `MNEMOSTXT_SECRET`.
+- Web container: limits on processes (256) and memory (512 MB).
+- The builder image is labelled `nih.ar.keep=true`, so a filtered
+  `docker image prune` keeps it.
+
+### Fixed
+
+- Web: a client could avoid the sign-in limit by sending its own
+  `X-Forwarded-For`. Forwarding headers now count only from a trusted proxy
+  (`MNEMOSTXT_TRUSTED_PROXIES`, default: private ranges such as the Docker
+  network).
+- Android: Share accepted `file://` links, so another app could make MnemoTXT
+  copy its own private files into the inbox. Only other apps' `content://`
+  links are taken now, up to 200 MB a file.
+- Android: any app could ask MnemoTXT to open any path through the widget
+  intent; only files inside the notes folder are opened now.
+- Android: app data was included in Android backups; it no longer is.
+
 ## [0.0.4] - 2026-11-10
 
 ### Added

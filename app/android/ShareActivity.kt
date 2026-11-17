@@ -8,6 +8,9 @@ package ar.nih.mnemostxt
 //  - Files (one or many) are copied with their own names; a name already in
 //    the inbox gets " (2)", " (3)"… instead of being overwritten.
 // It needs no unlocking: it can only add files, never read them.
+// Only content:// links from other apps are taken: a file:// link or one of
+// this app's own could make it copy its private files into shared storage.
+// One file may be at most MAX_BYTES.
 
 import android.app.Activity
 import android.content.Intent
@@ -49,14 +52,41 @@ class ShareActivity : Activity() {
     else -> emptyList()
   }
 
+  /** Refuses links that are not another app's content (see the note at the top). */
+  private fun allowed(uri: Uri): Boolean {
+    if (uri.scheme != "content") return false
+    val authority = uri.authority ?: return false
+    return !authority.startsWith(packageName)
+  }
+
   private fun copy(uri: Uri, dir: File): String {
+    if (!allowed(uri)) throw IllegalStateException("Not saved: only files shared by another app can be saved")
     val name = displayName(uri)?.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_")?.takeIf { it.isNotBlank() && it != "." && it != ".." } ?: "shared"
     val file = Inbox.unique(dir, name)
-    contentResolver.openInputStream(uri).use { input ->
-      requireNotNull(input) { "cannot read $name" }
-      file.outputStream().use { input.copyTo(it) }
+    try {
+      contentResolver.openInputStream(uri).use { input ->
+        requireNotNull(input) { "cannot read $name" }
+        file.outputStream().use { out ->
+          val buf = ByteArray(64 * 1024)
+          var total = 0L
+          while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > MAX_BYTES) throw IllegalStateException("Not saved: $name is larger than ${MAX_BYTES / 1048576} MB")
+            out.write(buf, 0, n)
+          }
+        }
+      }
+    } catch (e: Exception) {
+      file.delete() // no half-written file in the inbox
+      throw e
     }
     return file.name
+  }
+
+  companion object {
+    const val MAX_BYTES = 200L * 1024 * 1024
   }
 
   private fun displayName(uri: Uri): String? =

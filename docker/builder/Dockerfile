@@ -6,6 +6,9 @@
 # Built once per BUILDER_TAG (scripts/build-release.sh) and reused.
 FROM mirror.gcr.io/library/rust:1-bookworm
 
+# Kept by a cleanup that runs: docker image prune -a -f --filter "label!=nih.ar.keep=true"
+LABEL nih.ar.keep="true"
+
 ARG NODE_MAJOR=22
 ARG ANDROID_PLATFORM=36
 ARG ANDROID_BUILD_TOOLS=36.0.0

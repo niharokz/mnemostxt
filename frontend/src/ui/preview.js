@@ -1,7 +1,9 @@
 // Markdown preview: a side panel next to the editor (Ctrl+Shift+M). The clean
 // View (ui/reader.js) renders through fill() too. Rendered with
 // marked and sanitised with DOMPurify; images next to the note load through the
-// backend, links to other notes open them, web links open in the browser.
+// backend, links to other notes open them ([[wiki links]] too), web links open
+// in the browser. A note is untrusted text (it may come from another device or
+// a shared file): scripts, styles, forms and frames never reach the page.
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { dirname, join, extname } from '../core/paths.js';
@@ -9,6 +11,32 @@ import { isMarkdown } from '../core/languages.js';
 import { h, debounce } from './dom.js';
 
 marked.setOptions({ gfm: true, breaks: false });
+
+// [[note]], [[note|text]], [[note#heading]] → a link the click handler resolves
+const WIKI = /^\[\[([^\[\]\n|#]*)(?:#([^\[\]\n|]*))?(?:\|([^\[\]\n]*))?\]\]/;
+marked.use({
+  extensions: [{
+    name: 'wikilink',
+    level: 'inline',
+    start: (src) => { const i = src.indexOf('[['); return i < 0 ? undefined : i; },
+    tokenizer(src) {
+      const m = WIKI.exec(src);
+      const target = m ? m[1].trim() : '';
+      const heading = m ? (m[2] || '').trim() : '';
+      if (!m || (!target && !heading)) return undefined;
+      return { type: 'wikilink', raw: m[0], target, heading, label: (m[3] || '').trim() || target || heading };
+    },
+    renderer: (t) => `<a class="wikilink" href="#" data-wiki="${escapeHtml(t.target)}" data-heading="${escapeHtml(t.heading)}">${escapeHtml(t.label)}</a>`,
+  }],
+});
+
+// What rendered markdown may contain. Task-list checkboxes are the only inputs.
+const PURIFY = {
+  ADD_ATTR: ['target'],
+  FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select', 'option', 'iframe', 'frame', 'object', 'embed', 'link', 'meta', 'base', 'dialog', 'audio', 'video', 'source'],
+  FORBID_ATTR: ['style', 'srcset', 'ping', 'formaction', 'action', 'autofocus', 'contenteditable', 'name', 'form'],
+};
+export const renderMarkdown = (text) => DOMPurify.sanitize(marked.parse(text), PURIFY);
 
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' };
 
@@ -47,9 +75,9 @@ export class Preview {
   // Renders document d as markdown into target (front matter shown as a block).
   fill(target, d) {
     const { meta, body } = this.stripFrontMatter(this.app.textOf(d));
-    const html = DOMPurify.sanitize(marked.parse(body), { ADD_ATTR: ['target'] });
-    target.innerHTML = (meta ? `<pre class="fm">${escapeHtml(meta)}</pre>` : '') + html;
-    for (const cb of target.querySelectorAll('input[type=checkbox]')) cb.disabled = true;
+    target.innerHTML = (meta ? `<pre class="fm">${escapeHtml(meta)}</pre>` : '') + renderMarkdown(body);
+    for (const input of target.querySelectorAll('input')) { if (input.type === 'checkbox') input.disabled = true; else input.remove(); }
+    for (const a of target.querySelectorAll('a[href^="http"]')) a.rel = 'noopener noreferrer';
     this.loadImages(d, target);
   }
 
@@ -78,13 +106,18 @@ export class Preview {
     if (!a) return;
     const href = a.getAttribute('href') || '';
     e.preventDefault();
+    const reading = root !== this.body; // the clean View: linked notes open in it too
+    if (a.dataset.wiki != null) { this.app.openWiki(a.dataset.wiki, a.dataset.heading || '', { view: reading }); return; }
     if (/^(https?:|mailto:)/i.test(href)) { this.openExternal(href); return; }
     if (href.startsWith('#')) { root.querySelector(`[id="${CSS.escape(href.slice(1))}"]`)?.scrollIntoView(); return; }
     const d = this.app.active;
     const target = decodeURIComponent(href.split('#')[0]);
     if (!target) return;
     const base = d?.path ? dirname(d.path) : this.app.backend.notesRoot;
-    this.app.open(target.startsWith('/') ? join(this.app.backend.notesRoot, target) : join(base, target));
+    if (base == null) return;
+    this.app.open(target.startsWith('/') ? join(this.app.backend.notesRoot, target) : join(base, target)).then((doc) => {
+      if (reading && doc?.kind === 'text' && isMarkdown(doc.path || '')) this.app.setView(doc, true);
+    });
   }
 }
 

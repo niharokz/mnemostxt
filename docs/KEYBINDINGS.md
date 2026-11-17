@@ -88,7 +88,17 @@ Mouse: **Alt+drag** selects a column · **Ctrl+click** adds a cursor ·
 | Unfold all | `Alt+Shift+0` |
 | Fold current level | `Ctrl+Alt+F` |
 | Unfold current level | `Ctrl+Alt+Shift+F` |
+| Focus mode | `Ctrl+Alt+Z` (Escape leaves it) |
 | Full screen | `F11` |
+
+## Notes
+
+| Action | Keys |
+|---|---|
+| Today's note | `Alt+D` |
+| Go to file | `Ctrl+Shift+O` |
+| Go to heading | `Ctrl+Shift+G` |
+| Open link under cursor | `Alt+Enter` |
 
 ## Settings and help
 
@@ -101,6 +111,7 @@ Mouse: **Alt+drag** selects a column · **Ctrl+click** adds a cursor ·
 
 - Multi-cursor keys come from VS Code (Notepad++ has none by default):
   Ctrl+Alt+↑/↓ add a cursor, Ctrl+Alt+D adds the next match, Alt+F3 selects all matches.
-- Ctrl+Shift+M (Markdown preview), Ctrl+Shift+E (sidebar), Alt+Z (word wrap)
-  and Ctrl+, (preferences) are mnemostxt additions that clash with nothing in Notepad++.
+- Ctrl+Shift+M (Markdown preview), Ctrl+Shift+E (sidebar), Alt+Z (word wrap),
+  Ctrl+, (preferences) and the Notes keys are mnemostxt additions that clash
+  with nothing in Notepad++.
 - No macros, plugins or Run menu — mnemostxt is just a notepad.

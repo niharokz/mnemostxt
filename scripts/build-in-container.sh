@@ -99,6 +99,17 @@ for t in "$@"; do
   esac
 done
 (cd "$OUT" && sha256sum mnemostxt-* > SHA256SUMS)
+# Optional: sign SHA256SUMS with an SSH key in the key folder (docs/RELEASING.md).
+# Anyone can then check a download with ssh-keygen -Y verify (see the release notes).
+if [ -f "$KEY_DIR/release-signing" ] && command -v ssh-keygen >/dev/null 2>&1; then
+  k=$(mktemp); cp "$KEY_DIR/release-signing" "$k"; chmod 600 "$k"
+  if ssh-keygen -q -Y sign -f "$k" -n mnemostxt-release "$OUT/SHA256SUMS" >/dev/null 2>&1; then
+    echo "✓ SHA256SUMS signed"
+  else
+    echo "✗ signing SHA256SUMS failed (the release goes on unsigned)"
+  fi
+  rm -f "$k"
+fi
 
 # ── summary ──────────────────────────────────────────────────────────────────
 echo

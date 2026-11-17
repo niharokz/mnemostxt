@@ -45,6 +45,7 @@ export async function createWebBackend() {
     signedIn: !!me.signed_in,
     user: me.user,
     demoUser: me.demo || null, // { user, password } when the server offers a demo (sign-in card)
+    totp: !!me.totp, // the owner also enters an authenticator code
     readOnly: !!info.read_only,
     isDemo: !!info.demo,
     appDir: info.app_dir,
@@ -55,7 +56,7 @@ export async function createWebBackend() {
     startupFiles: [],
     canOpenAnywhere: false,
 
-    login: (user, password) => req('POST', api + 'login', { json: { user, password } }),
+    login: (user, password, code = '') => req('POST', api + 'login', { json: { user, password, code } }),
     logout: () => req('POST', api + 'logout', { json: {} }),
 
     list: (path) => req('GET', `${api}list?path=${q(path)}`),

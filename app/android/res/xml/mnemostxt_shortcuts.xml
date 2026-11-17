@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the MnemoTXT icon: New note, Today's note (MainActivity.queueOpen). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new"
+        android:enabled="true"
+        android:icon="@drawable/mnemostxt_tile"
+        android:shortcutShortLabel="@string/mnemostxt_shortcut_new">
+        <intent
+            android:action="ar.nih.mnemostxt.OPEN"
+            android:targetPackage="ar.nih.mnemostxt"
+            android:targetClass="ar.nih.mnemostxt.MainActivity"
+            android:data="mnemostxt://open/new">
+            <extra android:name="path" android:value="mnemostxt:new" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="daily"
+        android:enabled="true"
+        android:icon="@drawable/mnemostxt_tile"
+        android:shortcutShortLabel="@string/mnemostxt_shortcut_daily">
+        <intent
+            android:action="ar.nih.mnemostxt.OPEN"
+            android:targetPackage="ar.nih.mnemostxt"
+            android:targetClass="ar.nih.mnemostxt.MainActivity"
+            android:data="mnemostxt://open/daily">
+            <extra android:name="path" android:value="mnemostxt:daily" />
+        </intent>
+    </shortcut>
+</shortcuts>

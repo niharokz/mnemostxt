@@ -13,6 +13,25 @@ import { showLogin } from './ui/login.js';
 import { h } from './ui/dom.js';
 import { APP_NAME } from './core/brand.js';
 
+// Web: the installed app opens offline and can be a share target (public/sw.js).
+function registerWorker(backend) {
+  if (backend.kind !== 'web' || !('serviceWorker' in navigator) || !window.isSecureContext) return;
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((e) => console.warn('service worker', e));
+}
+
+// What another app shared (the manifest's share_target), or a shortcut
+// (?open=daily); the address is cleaned afterwards so a reload does not repeat it.
+async function handleLaunchParams(app) {
+  const q = new URLSearchParams(location.search);
+  const title = q.get('share_title') || '', text = q.get('share_text') || '', url = q.get('share_url') || '';
+  const open = q.get('open');
+  if (!title && !text && !url && !open) return;
+  history.replaceState(null, '', location.pathname);
+  if (open === 'daily') { await app.dailyNote(); return; }
+  const body = [title && `# ${title}`, text, url && !text.includes(url) ? url : ''].filter(Boolean).join('\n\n');
+  if (body) app.newDoc({ text: body + '\n' });
+}
+
 // Anything that breaks start-up is shown, never a blank window.
 function fatal(e) {
   console.error(e);
@@ -32,6 +51,7 @@ async function start() {
     document.body.replaceChildren(h('main.center', {}, h('div.card', {}, h('h2', {}, `${APP_NAME} cannot start`), h('p.muted', {}, e?.message || String(e)))));
     return;
   }
+  registerWorker(backend);
   if (backend.kind === 'web' && !backend.signedIn) { showLogin(backend); return; }
 
   const settings = new Settings(backend);
@@ -51,6 +71,7 @@ async function start() {
   await shell.tree.renderAll();
   await app.restore();
   if (backend.startupFiles?.length) await shell.openPaths(backend.startupFiles);
+  await handleLaunchParams(app);
   if (!app.docs.length) app.emit('active', null);
   document.body.classList.add('ready');
 }

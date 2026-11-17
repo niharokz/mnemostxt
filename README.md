@@ -40,9 +40,23 @@
 - **View** button for Markdown and CSV/TSV (Ctrl+Shift+V): a clean reading
   view, or a sortable, filterable table. Markdown preview beside the editor
   (Ctrl+Shift+M), and a viewer for images and PDFs.
+- **Links between notes**: `[[note]]`, `[[note|text]]`, `[[note#heading]]`
+  with completion after `[[`; click in the View or Alt+Enter in the editor
+  (a missing note is offered to be created). Notes → *Notes that link here*,
+  *Find tag* (`#tag`), *Go to file* (Ctrl+Shift+O, fuzzy), *Go to heading*
+  (Ctrl+Shift+G) and *Today's note* (Alt+D, `daily/2026-11-17.md`).
+- **Encrypted notes** (Notes → Encrypt this note): AES-256-GCM with a
+  passphrase, asked once per app start; the file on disk is unreadable without
+  it, and no plain copy is kept anywhere (backups, history).
+- **History**: earlier versions of each note are kept as you save (File →
+  History…), compared line by line and restored with one click (undo works).
 - **Never loses work.** Unsaved edits survive closing (or crashing); a file
   changed by another program or device is never overwritten silently;
-  Syncthing conflict copies are flagged.
+  Syncthing conflict copies are flagged and compared side by side
+  (*Keep mine* / *Use theirs*).
+- **Find in files with Replace all**, CSV cells edited in the table View,
+  focus mode (Ctrl+Alt+Z), typewriter scrolling, spell check, word count,
+  export a markdown note as one HTML file, print the rendered note (PDF).
 - **One setting.** Everything lives in the notes folder's app folder
   (default `logs/mnemostxt/`: `settings.json`, trash, scratch, each device's
   open tabs), so the desktop, phone and web app look and behave the same.
@@ -52,7 +66,9 @@
 - **Android**: system folder picker, fingerprint/face/screen-lock lock,
   "Share to mnemostxt" into your inbox folder, and home-screen widgets:
   Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2), Quick capture (4×1),
-  each with its own theme, opacity, text size and font.
+  each with its own theme, opacity, text size and font. A Quick capture tile
+  for the quick settings, launcher shortcuts (New note, Today's note), and an
+  option to hide the app in Recents and block screenshots.
 
 ## Web app
 
@@ -69,6 +85,14 @@ docker compose up -d
 
 An optional demo account (`MNEMOSTXT_DEMO_USER`, `MNEMOSTXT_DEMO_PASSWORD`)
 sees built-in sample notes, read-only; the sign-in card offers it.
+
+Recommended: a second sign-in step with an authenticator app.
+`docker compose run --rm -T mnemostxt totp-secret` prints a secret and an
+`otpauth://` link; put the secret in `.env` as `MNEMOSTXT_TOTP_SECRET` and add
+it to Aegis, 2FAS or any authenticator.
+
+The web app can be installed from the browser (it then opens offline and
+appears in the phone's share menu: shared text opens in a new tab).
 
 Point your reverse proxy at `mnemostxt:8080` on the `homelab` network
 (Caddy: `reverse_proxy mnemostxt:8080`). The About page is at `/`, the editor

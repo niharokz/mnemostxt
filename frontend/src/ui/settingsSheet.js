@@ -64,12 +64,14 @@ export function showSettings(app, ui, first = 'appearance') {
       sw('highlightActiveLine', 'Highlight current line'),
       sw('showWhitespace', 'Show whitespace'),
       sw('wordWrap', 'Word wrap'),
+      sw('typewriter', 'Typewriter scrolling', 'The line you type stays in the middle of the window'),
       app.mobile ? null : sw('minimap', 'Minimap'),
     ],
     editor: () => [
       row('Tab width', num('tabSize', 1, 16)),
       sw('indentWithTabs', 'Indent with tabs'),
       sw('autoCloseBrackets', 'Auto-close brackets and quotes'),
+      sw('spellcheck', 'Check spelling', 'Uses the spell checker of the browser or the system web view, where there is one'),
       row('New file line endings', seg('newFileEol', [['LF', 'LF'], ['CRLF', 'CRLF']])),
       sw('trimTrailingWhitespaceOnSave', 'Trim trailing whitespace on save'),
       sw('insertFinalNewlineOnSave', 'End files with a newline on save'),
@@ -80,6 +82,8 @@ export function showSettings(app, ui, first = 'appearance') {
       row('Autosave delay (ms)', num('autosaveDelayMs', 200, 60000, 100)),
       row('Keep unsaved edits after (ms)', num('backupDelayMs', 200, 10000, 100), 'How soon edits are copied for restore after a crash or restart'),
       row('Scratch folder', text('scratchFolder', { pattern: /^[\w.-]+(\/[\w.-]+)*$/ }), `New tabs are kept in ${be.notesName}/${appDirOf(be)}/<this> until you save them somewhere`),
+      row('Versions kept per note', num('historyKept', 0, 500), `File → History. Copies live in ${be.notesName}/${appDirOf(be)}/history; 0 turns history off`),
+      row('At most one version every (minutes)', num('historyMinutes', 0, 1440)),
       row('Scratch file extension', text('scratchExtension', { pattern: /^[A-Za-z0-9]{1,10}$/ }), 'scratch_<device>_<date-time>.<extension>; picking a language changes it'),
     ],
     files: () => [
@@ -89,6 +93,7 @@ export function showSettings(app, ui, first = 'appearance') {
       sw('showHidden', 'Show hidden items'),
       h('label.f', {}, h('span', {}, 'Hidden names (one per line)'),
         h('textarea', { rows: 3, spellcheck: 'false', onchange: (e) => s.set({ hidden: e.target.value.split(/[\n,]/).map((x) => x.trim()).filter(Boolean) }) }, s.get('hidden').join('\n'))),
+      row("Today's note folder", text('dailyFolder', { pattern: /^[\w .-]+(\/[\w .-]+)*$/ }), `Notes → Today's note opens ${be.notesName}/<this>/<date>.md (the template is "dailyTemplate" in settings.json)`),
       sw('confirmDelete', 'Confirm before moving to trash'),
       row('Keep trash for (days)', num('trashDays', 1, 3650), 'Settings → Empty trash removes older items'),
       row('Open read-only above (MB)', num('readOnlyAboveMB', 1, 50)),
@@ -223,6 +228,7 @@ export function showSettings(app, ui, first = 'appearance') {
           if (on && !(await a.lockAvailable())) { s.set({ androidLock: false }); alert('No screen lock', 'Set a screen lock (PIN, pattern or password) in the phone settings first.'); }
         }),
         row('Lock after (minutes in background)', num('androidLockAfterMinutes', 0, 1440), '0 = every time you come back'),
+        sw('androidSecure', 'Hide in Recents and block screenshots', 'The app switcher shows a blank card and the screen cannot be captured'),
         row('App permissions', h('button', { type: 'button', onclick: () => a.openAppSettings() }, 'Open app info')),
         h('p.muted', {}, `Widgets: long-press the home screen → Widgets → ${APP_NAME}. Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2) and Quick capture (4×1); long-press a widget (or tap its title) for its theme, opacity, text size, font and folder or note.`));
     }

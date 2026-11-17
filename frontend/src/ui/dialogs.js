@@ -31,10 +31,10 @@ export function sheet({ title, body, actions = [], wide = false, onClose }) {
   });
 }
 
-export function prompt(title, { label = '', value = '', ok = 'OK', placeholder = '', selectStem = false } = {}) {
-  const input = h('input', { value, placeholder, autofocus: true, spellcheck: 'false', autocapitalize: 'off' });
+export function prompt(title, { label = '', value = '', ok = 'OK', placeholder = '', selectStem = false, type = 'text', note = '' } = {}) {
+  const input = h('input', { value, placeholder, type, autofocus: true, spellcheck: 'false', autocapitalize: 'off', autocomplete: type === 'password' ? 'off' : null });
   const form = h('form', { onsubmit: (e) => { e.preventDefault(); input.closest('dialog').done(input.value); } },
-    label ? h('label.f', {}, h('span', {}, label), input) : input);
+    label ? h('label.f', {}, h('span', {}, label), input) : input, note ? h('p.muted', {}, note) : null);
   setTimeout(() => {
     input.focus();
     const dot = value.lastIndexOf('.');

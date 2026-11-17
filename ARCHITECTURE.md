@@ -31,6 +31,9 @@ it along; nothing is written at the top of the notes folder.
                                       new tabs, saved as you type; shared by all devices
   state/<device>/session.json         that device's open tabs, cursors, folders, layout
   state/<device>/backups/<id>.txt     that device's unsaved edits of open files
+  history/<note>-<hash>/<date-time>_<device>.txt
+                                      earlier versions of each note (File → History;
+                                      historyKept, historyMinutes)
 ```
 
 Per device, outside the notes folder: the notes folder path, the device name
@@ -57,6 +60,12 @@ keeps session and backups in the browser, per account.
 | `ui/tree.js`, `ui/tabs.js`, `ui/statusbar.js`, `ui/search.js`, `ui/preview.js`, `ui/viewer.js` | the panels |
 | `ui/reader.js` | the clean View of markdown and CSV/TSV (table: sort, filter); `core/csv.js` parses |
 | `core/brand.js` | the name people see, MnemoTXT |
+| `core/wiki.js` | `[[links]]`, `#tags`, headings, fuzzy match, word count, dates (pure, unit-tested) |
+| `core/fileindex.js` | every file of the notes folder, for Go to file and links (built when first needed, dropped on change) |
+| `core/crypto.js` | encrypted notes: `mnemostxt-enc:v1` files, AES-256-GCM, PBKDF2 (WebCrypto) |
+| `core/diff.js` | line diff (Myers) for sync conflicts and history |
+| `editor/wikilinks.js` | completion after `[[` |
+| `ui/picker.js`, `ui/diffView.js` | the quick-pick list (Go to file, headings, history) and the compare sheet |
 | `ui/settingsSheet.js` | Preferences in sections, the theme colour editor, the key editor, per-device settings |
 | `ui/login.js` | the web sign-in card (and the demo box) |
 | `backend/android.js` | `window.MnemostxtAndroid`: folder picker, lock, permission screens, share settings |
@@ -111,6 +120,7 @@ Tauri 2. `src/lib.rs` registers async commands (they run off the UI thread):
 | `session.rs` | `bootstrap.json` (notes folder, app folder, device name); 0.0.1's session and backups |
 | `tray.rs` | the optional tray icon (desktop) |
 | `util.rs` | error codes, path normalising, "is inside" checks, URL decoding, device names |
+| `guard.rs` | the deny-list every file command passes: credential stores never, system folders read-only |
 
 **Fast file opening**: `read_raw` answers with raw bytes (8 bytes of
 modification time, then the file) and `write_raw` takes the file as the raw
@@ -136,6 +146,13 @@ bridge, icons, release signing. It is not committed.
 - **Share**: `ShareActivity` writes into `<notes>/<androidInbox>` (text as
   `<date>_<time>.md`, files under their names) using the folder the app last
   told it (`configure`), and closes. `Inbox.kt` holds that logic for everyone.
+- **Quick settings tile** (`CaptureTile.kt`) opens the capture box; launcher
+  shortcuts (`res/xml/mnemostxt_shortcuts.xml`) send `mnemostxt:new` and
+  `mnemostxt:daily` through the same queue as the widgets. `MainActivity`
+  takes only those two and files inside the notes folder from that queue.
+- **Privacy**: `android-prepare.py` turns Android backup off and adds data
+  extraction rules (`res/xml/mnemostxt_backup_*.xml`); `androidSecure` sets
+  `FLAG_SECURE`. Share takes only other apps' `content://` links.
 - **Widgets** (`Widgets.kt`, `WidgetConfigActivity.kt`, `CaptureActivity.kt`,
   `res/`): six providers (Recent files 2×2/3×2/4×2, Pinned note 2×2/4×2, Quick
   capture 4×1) drawn with RemoteViews; the lists come from `WidgetListService`
@@ -148,10 +165,13 @@ bridge, icons, release signing. It is not committed.
 
 ## Web (`server/`)
 
-Go, standard library plus vendored bcrypt; one static binary in a `scratch`
-image. `internal/vault` jails every path inside the notes folder (lexical check
-plus symlink resolution). `internal/auth` handles the sign-in (owner and an
-optional demo account), sessions and bans. The built frontend is embedded
+Go 1.24, standard library plus vendored bcrypt; one static binary in a
+`scratch` image. `internal/vault` jails every path inside the notes folder
+(lexical check plus symlink resolution) and opens files through an `os.Root`
+handle. `internal/auth` handles the sign-in (owner with an optional
+authenticator code, `totp.go`; an optional demo account), sessions and bans;
+`proxy.go` decides whose forwarding headers to believe. The web build adds a
+service worker (`public/sw.js`, app files only) and a share target. The built frontend is embedded
 (`web/dist`), and so are the About page and the demo's sample notes
 (`web/demo`, copied to `/state/demo-notes` at start and opened read-only).
 

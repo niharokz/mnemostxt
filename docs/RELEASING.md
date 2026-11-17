@@ -33,6 +33,20 @@ chmod 600 ~/.config/mnemostxt/release.env
 Anything in `scripts/release.conf` can be overridden there. Nothing personal
 goes in the repository.
 
+## Once (optional): sign the checksums
+
+With an SSH key in the runner's key folder, every release also gets
+`SHA256SUMS.sig`, and its notes say how to check a download. On the runner
+machine, in the mnemostxt key folder (the one mounted at `/keys`):
+
+```sh
+ssh-keygen -t ed25519 -N '' -C mnemostxt-release -f release-signing
+```
+
+Commit the public half as `docs/release-signing.pub` (it is meant to be
+public); keep `release-signing` only in the key folder. Without the key the
+release is the same, just unsigned.
+
 ## Every release
 
 ```sh

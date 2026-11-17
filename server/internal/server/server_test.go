@@ -144,3 +144,52 @@ func TestDemo(t *testing.T) {
 		t.Fatalf("info: %s", info)
 	}
 }
+
+func TestHeadersAndCookie(t *testing.T) {
+	ts, c := setup(t)
+	req, _ := http.NewRequest("POST", ts.URL+"/api/login", strings.NewReader(`{"user":"me","password":"pw"}`))
+	req.Header.Set("X-Mnemostxt", "1")
+	res, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	ck := res.Header.Get("Set-Cookie")
+	if !strings.Contains(ck, "HttpOnly") || !strings.Contains(ck, "SameSite=Strict") {
+		t.Fatalf("cookie: %s", ck)
+	}
+	for k, want := range map[string]string{"X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cross-Origin-Opener-Policy": "same-origin"} {
+		if got := res.Header.Get(k); got != want {
+			t.Errorf("%s: %q", k, got)
+		}
+	}
+	if csp := res.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "object-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("csp: %s", csp)
+	}
+}
+
+// With MNEMOSTXT_TOTP_SECRET the owner needs the code too; the demo does not.
+func TestTOTPLogin(t *testing.T) {
+	cfg, _ := config.Load(func(k string) string {
+		return map[string]string{"MNEMOSTXT_USER": "me", "MNEMOSTXT_PASSWORD": "pw", "MNEMOSTXT_TOTP_SECRET": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+			"MNEMOSTXT_DEMO_USER": "demo", "MNEMOSTXT_DEMO_PASSWORD": "demo"}[k]
+	})
+	v, _ := vault.New(t.TempDir(), 1<<20, cfg.Hidden)
+	a := auth.New(auth.Options{User: cfg.User, Password: cfg.Password, DemoUser: cfg.DemoUser, DemoPassword: cfg.DemoPass, Secret: "s", BanAfter: 50, TOTPSecret: cfg.TOTPSecret})
+	ts := httptest.NewServer(New(cfg, a, v, nil, "test"))
+	defer ts.Close()
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+	if _, me, _ := do(t, c, "GET", ts.URL+"/api/me", "", false); !strings.Contains(me, `"totp":true`) {
+		t.Fatalf("me: %s", me)
+	}
+	if code, body, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"me","password":"pw"}`, true); code != 401 || !strings.Contains(body, "code") {
+		t.Fatalf("password alone signed in: %d %s", code, body)
+	}
+	if code, _, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"me","password":"pw","code":"000000"}`, true); code != 401 {
+		t.Fatalf("wrong code: %d", code)
+	}
+	if code, _, _ := do(t, c, "POST", ts.URL+"/api/login", `{"user":"demo","password":"demo"}`, true); code != 200 {
+		t.Fatalf("demo needs no code: %d", code)
+	}
+}

@@ -1,6 +1,8 @@
 // Package vault is the notes folder as the web app sees it. Every path is
 // relative to the root and is checked twice: lexically (no "..", no absolute
 // paths) and after resolving symlinks (it must still be inside the root).
+// Files are then opened through an os.Root handle on the notes folder, so a
+// link swapped in between the check and the open still cannot lead outside.
 // Behaviour matches the desktop app (app/src/files.rs): atomic writes with a
 // modification-time check, and the same trash (<app folder>/trash, default
 // logs/mnemostxt/trash) and ledger. A read-only vault (the demo) refuses every
@@ -9,8 +11,11 @@ package vault
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -37,6 +42,22 @@ type Vault struct {
 	Hidden   map[string]bool // skipped by search
 	App      string          // app folder, relative (MNEMOSTXT_APP_DIR)
 	ReadOnly bool            // the demo: nothing may change
+	root     *os.Root        // every open goes through it: the kernel refuses anything outside
+}
+
+// rel turns a checked path (from Abs) into one the root handle accepts.
+// Symlinks are resolved first: links that stay inside the notes folder keep
+// working (os.Root refuses absolute links), escaping ones are refused.
+func (v *Vault) rel(p string) (string, error) {
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	r, err := filepath.Rel(v.Root, real)
+	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+		return "", fs.ErrPermission
+	}
+	return r, nil
 }
 
 // TrashDir is <app folder>/trash, relative to the root.
@@ -66,7 +87,11 @@ func New(root string, maxSize int64, hidden []string) (*Vault, error) {
 	for _, x := range hidden {
 		h[x] = true
 	}
-	return &Vault{Root: real, MaxSize: maxSize, Hidden: h, App: DefaultAppDir}, nil
+	handle, err := os.OpenRoot(real)
+	if err != nil {
+		return nil, fmt.Errorf("notes folder %s: %w", root, err)
+	}
+	return &Vault{Root: real, MaxSize: maxSize, Hidden: h, App: DefaultAppDir, root: handle}, nil
 }
 
 type Entry struct {
@@ -96,6 +121,8 @@ func ioErr(err error, rel string) error {
 		return httpx.Errorf(http.StatusConflict, "EXISTS", "%s already exists", rel)
 	case errors.Is(err, fs.ErrPermission):
 		return httpx.Errorf(http.StatusForbidden, "DENIED", "no permission for %s", rel)
+	case err != nil && strings.Contains(err.Error(), "path escapes"): // os.Root
+		return httpx.Errorf(http.StatusForbidden, "DENIED", "%s points outside the notes folder", rel)
 	}
 	return err
 }
@@ -143,10 +170,20 @@ func (v *Vault) List(rel string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	des, err := os.ReadDir(p)
+	r, err := v.rel(p)
 	if err != nil {
 		return nil, ioErr(err, c)
 	}
+	dir, err := v.root.Open(r)
+	if err != nil {
+		return nil, ioErr(err, c)
+	}
+	des, err := dir.ReadDir(-1)
+	_ = dir.Close()
+	if err != nil {
+		return nil, ioErr(err, c)
+	}
+	sort.Slice(des, func(i, j int) bool { return des[i].Name() < des[j].Name() })
 	out := make([]Entry, 0, len(des))
 	for _, d := range des {
 		st, err := os.Stat(filepath.Join(p, d.Name())) // follow links
@@ -184,7 +221,16 @@ func (v *Vault) Read(rel string) ([]byte, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	st, err := os.Stat(p)
+	r, err := v.rel(p)
+	if err != nil {
+		return nil, 0, ioErr(err, c)
+	}
+	f, err := v.root.Open(r)
+	if err != nil {
+		return nil, 0, ioErr(err, c)
+	}
+	defer f.Close()
+	st, err := f.Stat()
 	if err != nil {
 		return nil, 0, ioErr(err, c)
 	}
@@ -194,9 +240,12 @@ func (v *Vault) Read(rel string) ([]byte, int64, error) {
 	if st.Size() > v.MaxSize {
 		return nil, 0, httpx.Errorf(http.StatusRequestEntityTooLarge, "TOO_LARGE", "%s is too large", c)
 	}
-	b, err := os.ReadFile(p)
+	b, err := io.ReadAll(io.LimitReader(f, v.MaxSize+1))
 	if err != nil {
 		return nil, 0, ioErr(err, c)
+	}
+	if int64(len(b)) > v.MaxSize { // it grew while being read
+		return nil, 0, httpx.Errorf(http.StatusRequestEntityTooLarge, "TOO_LARGE", "%s is too large", c)
 	}
 	return b, ms(st.ModTime()), nil
 }
@@ -234,10 +283,17 @@ func (v *Vault) Write(rel string, data []byte, expect int64) (int64, error) {
 	if _, err := os.Stat(dir); err != nil {
 		return 0, ioErr(err, path.Dir(c))
 	}
-	tmp, err := os.CreateTemp(dir, ".~"+filepath.Base(target)+".*.mnemostxt-tmp")
+	rdir, err := v.rel(dir)
+	if err != nil {
+		return 0, ioErr(err, path.Dir(c))
+	}
+	var rnd [6]byte
+	_, _ = rand.Read(rnd[:])
+	tmp, err := v.root.OpenFile(filepath.Join(rdir, ".~"+filepath.Base(target)+"."+hex.EncodeToString(rnd[:])+".mnemostxt-tmp"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return 0, ioErr(err, c)
 	}
+	tmpPath := filepath.Join(dir, filepath.Base(tmp.Name()))
 	_, werr := tmp.Write(data)
 	if werr == nil {
 		werr = tmp.Sync()
@@ -246,15 +302,15 @@ func (v *Vault) Write(rel string, data []byte, expect int64) (int64, error) {
 		werr = cerr
 	}
 	if werr == nil && statErr == nil {
-		_ = os.Chmod(tmp.Name(), st.Mode().Perm())
+		_ = os.Chmod(tmpPath, st.Mode().Perm())
 	} else if werr == nil {
-		_ = os.Chmod(tmp.Name(), 0o644)
+		_ = os.Chmod(tmpPath, 0o644)
 	}
 	if werr == nil {
-		werr = os.Rename(tmp.Name(), target)
+		werr = os.Rename(tmpPath, target)
 	}
 	if werr != nil {
-		_ = os.Remove(tmp.Name())
+		_ = os.Remove(tmpPath)
 		return 0, ioErr(werr, c)
 	}
 	st, err = os.Stat(target)
@@ -283,7 +339,11 @@ func (v *Vault) Create(rel string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	rdir, err := v.rel(filepath.Dir(p))
+	if err != nil {
+		return 0, ioErr(err, path.Dir(c))
+	}
+	f, err := v.root.OpenFile(filepath.Join(rdir, filepath.Base(p)), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return 0, ioErr(err, c)
 	}

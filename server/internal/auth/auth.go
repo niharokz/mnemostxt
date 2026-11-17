@@ -10,12 +10,16 @@
 //   - The session cookie is user|expiry|HMAC-SHA256. Each account's key comes
 //     from MNEMOSTXT_SECRET *and* its password, so changing either signs that
 //     account out everywhere.
-//   - Over HTTPS the cookie is "__Host-mnemostxt" (Secure, Path=/, no Domain).
+//   - Over HTTPS the cookie is "__Host-mnemostxt" (Secure, Path=/, no Domain);
+//     always HttpOnly and SameSite=Strict.
+//   - Optional second step for the owner: a 6-digit authenticator code
+//     (MNEMOSTXT_TOTP_SECRET, totp.go).
 //   - BanAfter failures within 15 minutes ban the address for BanHours (saved in
 //     the state folder). LAN and Tailscale addresses are only slowed down unless
 //     BanPrivate is set, so you cannot lock yourself out at home.
-//   - The client address is CF-Connecting-IP, X-Real-IP, or the *last*
-//     X-Forwarded-For entry (the one your own proxy added).
+//   - The client address comes from CF-Connecting-IP, X-Real-IP or
+//     X-Forwarded-For only when the connection is from a trusted proxy
+//     (MNEMOSTXT_TRUSTED_PROXIES, proxy.go); otherwise it is the peer itself.
 package auth
 
 import (
@@ -57,6 +61,8 @@ type Options struct {
 	BanFor                 time.Duration
 	BanPrivate             bool
 	StateDir               string // bans.json lives here; "" = in memory only
+	TOTPSecret             string // base32; "" = no second step
+	TrustedProxies         []*net.IPNet
 }
 
 // Account is someone who can sign in.
@@ -73,9 +79,12 @@ type Auth struct {
 	opt      Options
 	now      func() time.Time
 
-	mu    sync.Mutex
-	fails map[string][]time.Time
-	bans  map[string]time.Time
+	totp []byte // the owner's authenticator key, nil when off
+
+	mu       sync.Mutex
+	fails    map[string][]time.Time
+	bans     map[string]time.Time
+	totpLast uint64 // the last time step a code was accepted for
 }
 
 func New(o Options) *Auth {
@@ -85,6 +94,11 @@ func New(o Options) *Auth {
 		_, _ = rand.Read(b)
 		secret = hex.EncodeToString(b)
 		log.Printf("auth: MNEMOSTXT_SECRET is empty — sessions end when the server restarts")
+	} else if len(secret) < 32 {
+		log.Printf("auth: MNEMOSTXT_SECRET is short (%d characters) — use at least 32: openssl rand -hex 32", len(secret))
+	}
+	if o.Password != "" && !IsHash(o.Password) {
+		log.Printf("auth: the password is stored as plain text — prefer MNEMOSTXT_PASSWORD_HASH (mnemostxt hash-password)")
 	}
 	a := &Auth{opt: o, now: time.Now, fails: map[string][]time.Time{}, bans: map[string]time.Time{}}
 	add := func(user, pw string, demo bool) {
@@ -101,8 +115,33 @@ func New(o Options) *Auth {
 	if IsHash(o.Password) {
 		a.dummy = o.Password
 	}
+	if o.TOTPSecret != "" {
+		if key, err := ParseTOTPSecret(o.TOTPSecret); err == nil {
+			a.totp = key
+		} else {
+			log.Printf("auth: MNEMOSTXT_TOTP_SECRET ignored: %v", err)
+		}
+	}
 	a.loadBans()
 	return a
+}
+
+// TOTP reports whether the owner signs in with an authenticator code too.
+func (a *Auth) TOTP() bool { return a.totp != nil }
+
+// checkCode accepts a current code once (the owner only; the demo has none).
+func (a *Auth) checkCode(acc *Account, code string) bool {
+	if a.totp == nil || acc.Demo {
+		return true
+	}
+	c := totpCounter(a.totp, code, a.now())
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if c == 0 || c <= a.totpLast {
+		return false
+	}
+	a.totpLast = c
+	return true
 }
 
 func HashPassword(pw string) (string, error) {
@@ -216,7 +255,7 @@ func (a *Auth) Register(mux *http.ServeMux) {
 			return
 		}
 		for _, n := range []string{SecureCookieName, CookieName} {
-			http.SetCookie(w, &http.Cookie{Name: n, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: n == SecureCookieName || Secure(r)})
+			http.SetCookie(w, &http.Cookie{Name: n, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: n == SecureCookieName || a.Secure(r)})
 		}
 		httpx.JSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
@@ -226,7 +265,7 @@ func (a *Auth) Register(mux *http.ServeMux) {
 			httpx.JSON(w, http.StatusOK, map[string]any{"signed_in": true, "user": acc.User, "is_demo": acc.Demo})
 			return
 		}
-		out := map[string]any{"signed_in": false}
+		out := map[string]any{"signed_in": false, "totp": a.TOTP()}
 		if d := a.demoCard(); d != nil {
 			out["demo"] = d
 		}
@@ -240,65 +279,45 @@ func (a *Auth) login(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusForbidden, "DENIED", "cross-site request refused")
 		return
 	}
-	ip := ClientIP(r)
+	ip := ClientIP(r, a.opt.TrustedProxies)
 	if until, banned := a.banned(ip); banned {
 		httpx.Fail(w, http.StatusTooManyRequests, "DENIED", "too many failed sign-ins — blocked until "+until.Format("2 Jan 15:04"))
 		return
 	}
-	var in struct{ User, Password string }
+	var in struct{ User, Password, Code string }
 	if err := httpx.Decode(w, r, 16<<10, &in); err != nil {
 		httpx.Fail(w, http.StatusBadRequest, "INVALID", "invalid request")
 		return
 	}
 	acc := a.Check(in.User, in.Password)
+	if acc != nil && !a.checkCode(acc, in.Code) {
+		acc = nil // same answer as a wrong password: no hint which part failed
+	}
 	if acc == nil {
 		n := a.fail(ip)
 		log.Printf("login: failed sign-in from %s (%d of %d)", ip, n, a.opt.BanAfter)
 		time.Sleep(time.Duration(300+100*min(n, 20)) * time.Millisecond)
-		httpx.Fail(w, http.StatusUnauthorized, "AUTH", "wrong user name or password")
+		msg := "wrong user name or password"
+		if a.TOTP() {
+			msg = "wrong user name, password or code"
+		}
+		httpx.Fail(w, http.StatusUnauthorized, "AUTH", msg)
 		return
 	}
 	a.reset(ip)
 	log.Printf("login: %s signed in from %s", acc.User, ip)
+	secure := a.Secure(r)
 	name := CookieName
-	if Secure(r) {
+	if secure {
 		name = SecureCookieName
 	}
-	http.SetCookie(w, &http.Cookie{Name: name, Value: a.Token(acc, a.now().Add(SessionTTL)), Path: "/", MaxAge: int(SessionTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: Secure(r)})
+	http.SetCookie(w, &http.Cookie{Name: name, Value: a.Token(acc, a.now().Add(SessionTTL)), Path: "/", MaxAge: int(SessionTTL.Seconds()), HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secure})
 	httpx.JSON(w, http.StatusOK, map[string]any{"ok": true, "user": acc.User})
-}
-
-func Secure(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-}
-
-func ClientIP(r *http.Request) string {
-	for _, h := range []string{"CF-Connecting-IP", "X-Real-IP"} {
-		if v := strings.TrimSpace(r.Header.Get(h)); v != "" && net.ParseIP(v) != nil {
-			return v
-		}
-	}
-	if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
-		parts := strings.Split(xff[len(xff)-1], ",")
-		if v := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(v) != nil {
-			return v
-		}
-	}
-	h, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return h
 }
 
 // private: LAN, loopback and Tailscale (100.64.0.0/10) addresses.
 func private(ip string) bool {
-	p := net.ParseIP(ip)
-	if p == nil {
-		return false
-	}
-	_, cgnat, _ := net.ParseCIDR("100.64.0.0/10")
-	return p.IsLoopback() || p.IsPrivate() || p.IsLinkLocalUnicast() || cgnat.Contains(p)
+	return inNets(ip, privateNets)
 }
 
 func (a *Auth) banned(ip string) (time.Time, bool) {
@@ -402,6 +421,8 @@ func (a *Auth) Describe() string {
 		}
 		if acc.Demo {
 			kind += ", read-only demo"
+		} else if a.totp != nil {
+			kind += " + authenticator code"
 		}
 		out = append(out, acc.User+" ("+kind+")")
 	}

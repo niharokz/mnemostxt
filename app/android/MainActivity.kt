@@ -33,6 +33,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.Button
@@ -66,6 +67,7 @@ class MainActivity : TauriActivity() {
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    applySecure()
     if (lockEnabled()) lock()
     queueOpen(intent)
     askForFileAccess()
@@ -79,9 +81,13 @@ class MainActivity : TauriActivity() {
 
   // ── files opened from a widget ────────────────────────────────────────────
 
+  // MainActivity is exported (it is the launcher entry), so any app can send
+  // this intent: only "mnemostxt:new", "mnemostxt:daily" (launcher shortcuts)
+  // and files inside the notes folder are taken.
   private fun queueOpen(intent: Intent?) {
     if (intent?.action != Widgets.ACTION_OPEN) return
     val path = intent.getStringExtra(Widgets.EXTRA_PATH) ?: return
+    if (path != "mnemostxt:new" && path != "mnemostxt:daily" && !insideNotes(path)) { intent.removeExtra(Widgets.EXTRA_PATH); return }
     synchronized(openQueue) { openQueue.add(path) }
     intent.removeExtra(Widgets.EXTRA_PATH) // not again on rotation
     runOnUiThread { webView?.evaluateJavascript("window.__mnemostxtOpenPending && window.__mnemostxtOpenPending()", null) }
@@ -90,6 +96,23 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     webView.addJavascriptInterface(Bridge(), "MnemostxtAndroid")
+  }
+
+  private fun insideNotes(path: String): Boolean {
+    val notes = Inbox.notesDir(this) ?: return false
+    return try {
+      val root = notes.canonicalFile
+      var f: java.io.File? = java.io.File(path).canonicalFile
+      while (f != null && f != root) f = f.parentFile
+      f == root
+    } catch (e: Exception) { false }
+  }
+
+  // ── hide from Recents and screenshots (Preferences → This device) ─────────
+
+  private fun applySecure() {
+    if (prefs.getBoolean("secure", false)) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
   }
 
   // ── lock ──────────────────────────────────────────────────────────────────
@@ -264,7 +287,9 @@ class MainActivity : TauriActivity() {
         .putString("appDir", o.optString("appDir", "logs/mnemostxt"))
         .putBoolean("lock", o.optBoolean("lock", false))
         .putInt("lockAfterMinutes", o.optInt("lockAfterMinutes", 1))
+        .putBoolean("secure", o.optBoolean("secure", false))
         .apply()
+      runOnUiThread { applySecure() }
     }
   }
 

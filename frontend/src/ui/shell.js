@@ -4,7 +4,11 @@
 //   phone:   app bar · drawer (same sidebar) · tabs · editor · symbol bar
 import { EditorSelection } from '@codemirror/state';
 import { undo, redo, indentMore, cursorCharLeft, cursorCharRight } from '@codemirror/commands';
-import { basename } from '../core/paths.js';
+import { basename, dirname, join, extname } from '../core/paths.js';
+import { headings, fuzzyScore } from '../core/wiki.js';
+import { toBase64 } from '../core/encoding.js';
+import { renderMarkdown } from './preview.js';
+import { pick } from './picker.js';
 import { isMarkdown, languages, PLAIN } from '../core/languages.js';
 import { buildCommands, installKeys } from './commands.js';
 import { MenuBar } from './menu.js';
@@ -148,6 +152,10 @@ export class Shell {
       if (keys.includes('keybindings')) this.menu.render();
     });
     app.on('show-settings', (section) => this.showSettings(section));
+    app.on('search', ({ query, regex }) => { this.showSearch(); this.search.query(query, { regex }); }); // backlinks, tags
+    app.on('open-external', (url) => this.openExternal(url));
+    // Escape leaves focus mode
+    addEventListener('keydown', (e) => { if (e.key === 'Escape' && document.body.classList.contains('zen') && !document.querySelector('dialog[open], .cm-panel, .cm-tooltip-autocomplete')) this.toggleZen(false); });
     // Android: home-screen widgets show recent files and pinned notes
     if (app.backend.android?.refreshWidgets) app.on('saved', debounce(() => app.backend.android.refreshWidgets(), 3000));
 
@@ -168,7 +176,14 @@ export class Shell {
     }
     app.backend.onQuitRequested?.(async () => { await app.flush(); app.backend.quit(); });
     addEventListener('beforeunload', () => { app.flush(); });
-    addEventListener('beforeprint', () => { this.printArea.textContent = app.active?.kind === 'text' ? app.textOf(app.active) : ''; });
+    // printing: the clean View as it looks (markdown, table), otherwise the text
+    addEventListener('beforeprint', () => {
+      const d = app.active;
+      const rich = d?.kind === 'text' && d.view && !this.reader.el.hidden;
+      this.printArea.classList.toggle('rich', !!rich);
+      if (rich) this.printArea.replaceChildren(this.reader.body.cloneNode(true));
+      else this.printArea.textContent = d?.kind === 'text' ? app.textOf(d) : '';
+    });
 
     this.dragResize(this.sideResizer, (x) => { app.ui.sidebarWidth = Math.max(180, Math.min(560, x - this.side.getBoundingClientRect().left)); this.applyWidths(); });
     this.dragResize(this.prevResizer, (x) => {
@@ -294,6 +309,10 @@ export class Shell {
       content = [icon('warn'), h('span.grow', {}, 'This file was deleted or moved on disk.'),
         h('button', { onclick: () => app.closeDoc(d, { force: true }) }, 'Close'),
         h('button.primary', { onclick: () => { d.mtime = null; app.save(d, { overwrite: true }); } }, 'Save again')];
+    } else if (d?.kind === 'text' && d.conflictCopies?.length) {
+      const n = d.conflictCopies.length;
+      content = [icon('warn'), h('span.grow', {}, `Syncthing kept another version of this note${n > 1 ? ` (${n} copies)` : ''}.`),
+        h('button.primary', { onclick: () => app.compareConflict(d, d.conflictCopies[0]) }, 'Compare')];
     }
     b.hidden = !content;
     b.replaceChildren(...(content || []));
@@ -327,6 +346,7 @@ export class Shell {
   async openPaths(paths) {
     for (const p of paths) {
       if (p === 'mnemostxt:new') { this.app.newDoc(); continue; } // the widget's + button
+      if (p === 'mnemostxt:daily') { await this.app.dailyNote(); continue; } // launcher shortcut
       const st = await this.app.backend.stat(p).catch(() => null);
       if (st?.dir) { this.app.addRoot(p); this.toggleSidebar(true); } else if (st) await this.app.open(p);
       else toast(`Not found: ${p}`, { error: true });
@@ -336,6 +356,93 @@ export class Shell {
   print() {
     if (this.app.active?.kind !== 'text') return;
     window.print();
+  }
+
+  // Print the rendered note (the print dialog offers "Save as PDF").
+  printRendered() {
+    const d = this.app.active;
+    if (!canView(d)) return;
+    if (!d.view) this.app.setView(d, true);
+    setTimeout(() => window.print(), 350); // after the View has drawn
+  }
+
+  // Focus mode: only the text, in a readable column. Escape leaves it.
+  toggleZen(on = !document.body.classList.contains('zen')) {
+    document.body.classList.toggle('zen', on);
+    if (on) toast('Focus mode: Escape leaves it', { ms: 1800 });
+    requestAnimationFrame(() => { this.app.view.requestMeasure(); if (this.app.active?.kind === 'text' && !this.app.active.view) this.app.view.focus(); });
+  }
+
+  // Go to file: fuzzy search over every file of the notes folder.
+  async gotoFile() {
+    const app = this.app;
+    if (app.backend.notesRoot == null) return;
+    const files = await app.index.files();
+    const open = new Set(app.docs.map((d) => d.path));
+    const items = files.map((f) => ({ label: f.name, detail: dirname(f.rel), value: f.path, rel: f.rel })).sort((a, b) => open.has(b.value) - open.has(a.value));
+    const path = await pick({ title: 'Go to file', placeholder: 'Type part of a name or folder', items, score: (q, it) => fuzzyScore(q, it.rel), empty: 'No file matches' });
+    if (path) app.open(path);
+  }
+
+  // Go to heading: the outline of a markdown note.
+  async gotoHeading() {
+    const app = this.app;
+    const d = app.active;
+    if (d?.kind !== 'text') return;
+    const list = isMarkdown(d.path || d.untitled || '') ? headings(app.textOf(d)) : [];
+    if (!list.length) { toast('No headings in this file'); return; }
+    const line = await pick({ title: 'Go to heading', items: list.map((x) => ({ label: '\u2003'.repeat(x.level - 1) + x.text, detail: `line ${x.line}`, value: x.line })) });
+    if (!line) return;
+    if (d.view) app.setView(d, false);
+    app.gotoLine(line);
+  }
+
+  // Export a markdown note as one HTML file (images next to the note are built in).
+  async exportHtml() {
+    const app = this.app;
+    const be = app.backend;
+    const d = app.active;
+    if (d?.kind !== 'text' || !isMarkdown(d.path || d.untitled || '')) { toast('Export works for markdown files'); return; }
+    const { body } = this.preview.stripFrontMatter(app.textOf(d));
+    const article = document.createElement('article');
+    article.innerHTML = renderMarkdown(body); // sanitised
+    for (const input of article.querySelectorAll('input')) { if (input.type === 'checkbox') input.setAttribute('disabled', ''); else input.remove(); }
+    for (const a of article.querySelectorAll('a.wikilink')) a.replaceWith(document.createTextNode(a.textContent));
+    const base = d.path ? dirname(d.path) : be.notesRoot;
+    const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' };
+    for (const img of article.querySelectorAll('img')) {
+      const src = img.getAttribute('src') || '';
+      if (/^(https?:|data:)/i.test(src) || base == null) continue;
+      try {
+        const p = src.startsWith('/') && be.notesRoot != null ? join(be.notesRoot, src) : join(base, decodeURIComponent(src));
+        const r = await be.read(p);
+        if (r.bytes.length <= 4 * 1048576 && mime[extname(p)]) img.setAttribute('src', `data:${mime[extname(p)]};base64,${toBase64(r.bytes)}`);
+      } catch { /* the link stays as written */ }
+    }
+    const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const title = app.displayName(d).replace(/\.[^.]+$/, '');
+    const css = 'body{margin:0;background:#fff;color:#1b1f23;font:17px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif}article{max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 5rem}h1,h2,h3{line-height:1.25}a{color:#0b6e6e}pre,code{font:.9em/1.5 ui-monospace,"JetBrains Mono",Consolas,monospace}pre{background:#f4f6f7;padding:.9rem 1rem;border-radius:8px;overflow:auto}code{background:#f4f6f7;padding:.1em .3em;border-radius:4px}pre code{padding:0;background:none}blockquote{margin:1em 0;padding:.1em 1em;border-left:3px solid #c9d1d5;color:#55606a}table{border-collapse:collapse}th,td{border:1px solid #d5dbe0;padding:.35em .7em;text-align:left}img{max-width:100%}hr{border:0;border-top:1px solid #d5dbe0}@media(prefers-color-scheme:dark){body{background:#0f1418;color:#e6ecec}pre,code{background:#1a2228}a{color:#66bdb3}th,td,hr{border-color:#2b363d}blockquote{border-color:#2b363d;color:#9aa7ab}}';
+    const html = `<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n<title>${esc(title)}</title>\n<style>${css}</style>\n</head>\n<body>\n<article>\n${article.innerHTML}\n</article>\n</body>\n</html>\n`;
+    const bytes = new TextEncoder().encode(html);
+    const name = title.replace(/[\\/:*?"<>|]+/g, '-') + '.html';
+    if (be.kind === 'web') { // the browser saves it
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'text/html' }));
+      const a = h('a', { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      return;
+    }
+    const dir = d.path && !app.isScratch(d) ? dirname(d.path) : be.notesRoot ?? be.home;
+    let target = join(dir, name);
+    if (be.pickSavePath && be.canOpenAnywhere) target = await be.pickSavePath(target);
+    if (!target) return;
+    try {
+      await be.write(target, bytes, null);
+      app.emit('tree-changed', dirname(target));
+      toast(`Exported ${basename(target)}`);
+    } catch (e) { toast(`Not exported: ${e.message}`, { error: true }); }
   }
 
   async paste() {
@@ -443,7 +550,7 @@ export class Shell {
   }
 
   showShortcuts() {
-    const groups = [['File', 'file.', 'tab.'], ['Edit', 'edit.'], ['Search', 'search.', 'bookmark.'], ['View', 'view.'], ['Settings and help', 'settings.', 'help.']];
+    const groups = [['File', 'file.', 'tab.'], ['Edit', 'edit.'], ['Search', 'search.', 'bookmark.'], ['View', 'view.'], ['Notes', 'note.'], ['Settings and help', 'settings.', 'help.']];
     const rows = (prefixes) => this.commands.filter((c) => c.keys.length && prefixes.some((p) => c.id.startsWith(p)) && (!c.when || c.when()))
       .map((c) => h('tr', {}, h('td', {}, c.label), h('td', {}, c.keys.map((k) => h('kbd', {}, k)))));
     const body = h('div.shortcuts', {},

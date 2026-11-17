@@ -1,5 +1,6 @@
 // Viewer for files that are not text: images, PDFs (pdf.js, loaded only when
-// needed) and binary files (with "Open as text anyway").
+// needed), binary files (with "Open as text anyway") and encrypted notes that
+// are still locked (with "Unlock").
 import { extname } from '../core/paths.js';
 import { h } from './dom.js';
 
@@ -58,6 +59,11 @@ export class Viewer {
       } catch (e) {
         pages.append(h('p.muted', {}, 'Cannot show this PDF: ' + (e?.message || e)));
       }
+    } else if (doc.kind === 'locked') {
+      this.el.append(h('div.v-binary', {},
+        h('h3', {}, 'This note is encrypted'),
+        h('p.muted', {}, 'Enter its passphrase to read and edit it. The passphrase is kept only while the app is open.'),
+        h('button.primary', { onclick: () => this.app.unlock(doc) }, 'Unlock')));
     } else {
       this.el.append(h('div.v-binary', {},
         h('h3', {}, 'This looks like a binary file'),
