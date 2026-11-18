@@ -7,7 +7,7 @@ you do here is saved.
 - Tabs, Notepad++ keys (press **F1** for the list), markdown preview
   (**Ctrl+Shift+M**), find in files (**Ctrl+Shift+F**).
 - Syntax colours for 140+ languages: open anything in `snippets/`.
-- View → Theme has nss dark and light, Solarized, Nord, Gruvbox and more.
+- View → Theme has nss dark and light, Solarized, Nord, Gruvbox, Paper, Charcoal and more.
 
 On your own server every device — Linux, Windows, Android and the web —
 shares one `settings.json`, so they all look and behave the same.

@@ -55,6 +55,8 @@ object Widgets {
     "gruvbox" to ("Gruvbox" to pal("#282828", "#ebdbb2", "#a89984", "#83a598")),
     "dracula" to ("Dracula-style" to pal("#282a36", "#f8f8f2", "#a0a6c7", "#bd93f9")),
     "monokai" to ("Monokai-style" to pal("#272822", "#f8f8f2", "#a59f85", "#a6e22e")),
+    "paper" to ("Paper" to pal("#f4efe4", "#2b2721", "#6a6255", "#7a4a1c")),
+    "charcoal" to ("Charcoal" to pal("#1c1c1c", "#dcdad6", "#9c9892", "#e3a35f")),
     "high-contrast" to ("High contrast" to pal("#000000", "#ffffff", "#d0d0d0", "#3ff0e0")),
   )
 

@@ -1,5 +1,5 @@
 #!/bin/sh
-# mnemostxt release, start to finish, from your main machine:
+# mnemostxt release, start to finish, on the release machine:
 #
 #   sh scripts/release.sh            next patch version (0.0.2 -> 0.0.3)
 #   sh scripts/release.sh minor      0.0.2 -> 0.1.0
@@ -7,7 +7,9 @@
 #   sh scripts/release.sh 0.2.0      an exact version
 #
 # Options: --dry-run (only the checks), --yes (no questions), --no-deploy,
-#          --no-wait (push the tag, do not wait for the build).
+#          --no-wait (push the tag, do not wait for the build),
+#          --continue (a release that stopped after its tag: wait for its
+#          build, check it, deploy; nothing is bumped or tagged again).
 #
 # What it does, stopping at the first problem:
 #   1. pre-flight: tools, token, on main, clean, up to date, CHANGELOG "Unreleased"
@@ -15,12 +17,15 @@
 #   2. bump: VERSION, package.json/-lock, Cargo.toml/.lock, tauri.conf.json;
 #      CHANGELOG "Unreleased" becomes "[X.Y.Z] - today"
 #   3. commit and push main, wait for its check pipeline to pass
-#   4. tag vX.Y.Z and push it, wait for the release pipeline (deb, exe, apk)
+#   4. tag vX.Y.Z and push it, wait for the release pipeline (deb, exe, apk);
+#      every GitLab job is shown as it starts and ends, and the release
+#      build's own steps as they finish
+#   A push that reaches GitLab but not another push address (a mirror that is
+#   down) is a warning, not a stop: push again later with git push origin.
 #   5. post-release: the GitLab release exists with its files, the permanent
 #      download links answer
-#   6. deploy the web app (image built in gtlbrunner's memory-capped builder,
-#      then docker compose up) and check /health and
-#      the version it serves
+#   6. deploy the web app with scripts/deploy.sh: built while the old one
+#      serves, replaced in seconds, put back if the new one does not answer
 #   7. a status report
 #
 # Settings: scripts/release.conf (in git) and ~/.config/mnemostxt/release.env
@@ -53,7 +58,7 @@ report() {
 }
 
 # ── arguments ───────────────────────────────────────────────────────────────
-BUMP=patch DRY=0 YES=0 DEPLOY=1 WAIT=1
+BUMP=patch DRY=0 YES=0 DEPLOY=1 WAIT=1 CONT=0
 for a in "$@"; do
   case "$a" in
     patch|minor|major) BUMP=$a ;;
@@ -62,7 +67,8 @@ for a in "$@"; do
     --yes|-y) YES=1 ;;
     --no-deploy) DEPLOY=0 ;;
     --no-wait) WAIT=0 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    --continue) CONT=1 ;;
+    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
     *) echo "unknown argument: $a (see --help)"; exit 2 ;;
   esac
 done
@@ -76,6 +82,7 @@ if [ -f "$PRIVATE_ENV" ]; then
   . "$PRIVATE_ENV"
 fi
 GITLAB_TOKEN=${GITLAB_TOKEN:-}
+RELEASE_JOB=${RELEASE_JOB:-release-files}   # its log lines are shown while it runs
 API="$GITLAB_URL/api/v4/projects/$(printf '%s' "$GITLAB_PROJECT" | sed 's|/|%2F|g')"
 WEB="$GITLAB_URL/$GITLAB_PROJECT"
 
@@ -107,6 +114,12 @@ ok "on $MAIN_BRANCH, clean, up to date ($ahead local commit(s) to push)"
 
 sh scripts/check-version.sh >/dev/null || fail "version files disagree (sh scripts/check-version.sh)"
 OLD=$(tr -d ' \n\r' < VERSION)
+if [ "$CONT" = 1 ]; then
+  NEW=$OLD
+  git rev-parse -q --verify "refs/tags/v$NEW" >/dev/null || fail "--continue: there is no tag v$NEW (VERSION is $NEW)"
+  [ "$(git rev-parse "v$NEW^{commit}")" = "$(git rev-parse HEAD)" ] || fail "--continue: HEAD is not at v$NEW (git log --oneline -3)"
+  ok "continuing the release of $NEW (tag v$NEW, nothing is bumped)"
+else
 case "$BUMP" in
   patch|minor|major) NEW=$(echo "$OLD" | awk -F. -v b="$BUMP" '{ if (b=="major") print $1+1".0.0"; else if (b=="minor") print $1"."$2+1".0"; else print $1"."$2"."$3+1 }') ;;
   *) NEW=$BUMP ;;
@@ -119,6 +132,7 @@ ok "version $OLD → $NEW"
 unreleased=$(awk '/^## \[Unreleased\]/{on=1;next} /^## /{on=0} on' CHANGELOG.md | grep -c '^[-*] ' || true)
 [ "$unreleased" -gt 0 ] || fail "CHANGELOG.md: the [Unreleased] section has no entries — write what changed first"
 ok "CHANGELOG: $unreleased entries under [Unreleased]"
+fi
 
 sh scripts/check-public.sh >/dev/null || fail "check-public found something private (run sh scripts/check-public.sh)"
 ok "no secrets or private words in the repo"
@@ -142,11 +156,89 @@ fi
 
 if [ "$DRY" = 1 ]; then ok "dry run: nothing changed"; report; exit 0; fi
 if [ "$YES" != 1 ]; then
-  printf '\n%sRelease mnemostxt %s (commit, push, tag, build%s)? [y/N] %s' "$B" "$NEW" "$([ "$DEPLOY" = 1 ] && echo ', deploy')" "$N"
+  if [ "$CONT" = 1 ]; then what="wait for the build, check$([ "$DEPLOY" = 1 ] && echo ', deploy')"; else what="commit, push, tag, build$([ "$DEPLOY" = 1 ] && echo ', deploy')"; fi
+  printf '\n%sRelease mnemostxt %s (%s)? [y/N] %s' "$B" "$NEW" "$what" "$N"
   read -r answer
   case "$answer" in y|Y|yes) ;; *) echo "Nothing done."; exit 0 ;; esac
 fi
 
+# ── GitLab helpers ──────────────────────────────────────────────────────────
+# push_ref REF WHAT CHECK: pushes REF to every push remote. A remote with
+# several push addresses may fail on one (a mirror that is down): then CHECK
+# (a GitLab API path) decides; if GitLab has it, that is a warning, not a stop.
+push_ref() {
+  ref=$1 what=$2 check=$3
+  for r in $PUSH_REMOTES; do
+    if out=$(git push -q "$r" "$ref" 2>&1); then continue; fi
+    printf '%s\n' "$out" | sed 's/^/    /'
+    if api "$check" >/dev/null 2>&1; then
+      warn "GitLab has $what, another push address of '$r' failed (above): later, git push $r ${4:-$ref}"
+    else
+      fail "git push $r $ref failed, and GitLab does not have $what"
+    fi
+  done
+}
+
+# wait_pipeline REF SHA LABEL: polls until the pipeline for SHA on REF ends.
+# Shows each job as it starts and ends, and the release job's steps.
+wait_pipeline() {
+  ref=$1 sha=$2 label=$3 deadline=$(( $(date +%s) + PIPELINE_TIMEOUT_MIN * 60 )) id=""
+  while [ -z "$id" ]; do
+    id=$(api "/pipelines?ref=$ref&sha=$sha&per_page=1" | json "j[0]['id'] if j else None") || true
+    [ -n "$id" ] && break
+    [ "$(date +%s)" -lt "$deadline" ] || fail "$label: no pipeline appeared"
+    sleep 5
+  done
+  note "$label: $WEB/-/pipelines/$id"
+  seen=$(mktemp) shown=$(mktemp)
+  while :; do
+    st=$(api "/pipelines/$id" | json "j['status']") || st=unknown
+    # one line per job whose status changed: "HH:MM  name  status  (time)  url"
+    api "/pipelines/$id/jobs?per_page=100&include_retried=false" 2>/dev/null | python3 -c '
+import json, sys, time
+seen_file = sys.argv[1]
+jobs = sorted(json.load(sys.stdin), key=lambda x: x["id"])
+seen = dict(l.rstrip("\n").split(" ", 1) for l in open(seen_file) if " " in l)
+out = []
+icon = {"success": "✓", "failed": "✗", "canceled": "✗", "running": "▸", "pending": "…", "created": "·", "manual": "·", "skipped": "-"}
+for j in jobs:
+    key, st = str(j["id"]), j["status"]
+    if seen.get(key) == st:
+        continue
+    seen[key] = st
+    if st in ("created", "pending") :
+        continue
+    d = j.get("duration")
+    dur = "%dm %02ds" % (int(d) // 60, int(d) % 60) if d else ""
+    allowed = st == "failed" and j.get("allow_failure")
+    line = "%s %s %-14s %s%s %s" % (time.strftime("%H:%M"), icon.get(st, "?"), j["name"], st, " (allowed to fail)" if allowed else "", dur)
+    if st == "running" or (st == "failed" and not allowed):
+        line = line.rstrip() + "  " + j["web_url"]
+    out.append(line.rstrip())
+open(seen_file, "w").write("".join(f"{k} {v}\n" for k, v in seen.items()))
+print("\n".join(out))
+' "$seen" | while IFS= read -r line; do if [ -n "$line" ]; then note "$line"; fi; done
+    # the release job: its own steps as they finish (✓ Linux .deb 3m 53s …)
+    rj=$(api "/pipelines/$id/jobs?per_page=100" 2>/dev/null | json "next((x['id'] for x in j if x['name'] == '$RELEASE_JOB' and x['status'] in ('running', 'success', 'failed')), None)") || rj=""
+    if [ -n "$rj" ]; then
+      api "/jobs/$rj/trace" 2>/dev/null | sed 's/\x1b\[[0-9;]*[A-Za-z]//g; s/\r$//; s/^[0-9T:.Z-]* [0-9A-Z+]* //' \
+        | grep -E '^(limits:|✓ |✗ |! )' | while IFS= read -r line; do
+            grep -qxF "$line" "$shown" || { printf '%s\n' "$line" >> "$shown"; note "    $RELEASE_JOB: $line"; }
+          done
+    fi
+    case "$st" in
+      success) rm -f "$seen" "$shown"; ok "$label passed"; return 0 ;;
+      failed|canceled|skipped)
+        rm -f "$seen" "$shown"
+        bad=$(api "/pipelines/$id/jobs?scope[]=failed" | json "', '.join(f\"{x['name']} ({x['web_url']})\" for x in j if not x.get('allow_failure'))") || bad=""
+        fail "$label $st${bad:+: $bad}" ;;
+    esac
+    [ "$(date +%s)" -lt "$deadline" ] || { rm -f "$seen" "$shown"; fail "$label still '$st' after $PIPELINE_TIMEOUT_MIN min — see $WEB/-/pipelines/$id"; }
+    sleep "$POLL_SECONDS"
+  done
+}
+
+if [ "$CONT" = 0 ]; then
 # ── 2. bump ─────────────────────────────────────────────────────────────────
 step "Version $NEW"
 TODAY=$(date +%F)
@@ -193,36 +285,8 @@ step "Commit and push $MAIN_BRANCH"
 git add VERSION CHANGELOG.md frontend/package.json frontend/package-lock.json app/Cargo.toml app/Cargo.lock app/tauri.conf.json
 git commit -q -m "release: mnemostxt $NEW" || fail "git commit failed"
 SHA=$(git rev-parse HEAD)
-for r in $PUSH_REMOTES; do git push -q "$r" "HEAD:$MAIN_BRANCH" || fail "git push $r failed"; done
+push_ref "HEAD:$MAIN_BRANCH" "commit $(git rev-parse --short HEAD)" "/repository/commits/$SHA" "$MAIN_BRANCH"
 ok "pushed $(git rev-parse --short HEAD) to $PUSH_REMOTES"
-
-# wait_pipeline REF SHA LABEL: polls until the pipeline for SHA on REF ends.
-wait_pipeline() {
-  ref=$1 sha=$2 label=$3 deadline=$(( $(date +%s) + PIPELINE_TIMEOUT_MIN * 60 )) id="" last=""
-  while [ -z "$id" ]; do
-    id=$(api "/pipelines?ref=$ref&sha=$sha&per_page=1" | json "j[0]['id'] if j else None") || true
-    [ -n "$id" ] && break
-    [ "$(date +%s)" -lt "$deadline" ] || fail "$label: no pipeline appeared"
-    sleep 5
-  done
-  note "$label: $WEB/-/pipelines/$id"
-  while :; do
-    st=$(api "/pipelines/$id" | json "j['status']") || st=unknown
-    if [ "$st" != "$last" ]; then
-      jobs=$(api "/pipelines/$id/jobs?per_page=50" | json "', '.join(f\"{x['name']}:{x['status']}\" for x in sorted(j, key=lambda x: x['id']))") || jobs=""
-      note "$(date +%H:%M) $st — $jobs"
-      last=$st
-    fi
-    case "$st" in
-      success) ok "$label passed"; return 0 ;;
-      failed|canceled|skipped)
-        bad=$(api "/pipelines/$id/jobs?scope[]=failed" | json "', '.join(f\"{x['name']} ({x['web_url']})\" for x in j)") || bad=""
-        fail "$label $st${bad:+: $bad}" ;;
-    esac
-    [ "$(date +%s)" -lt "$deadline" ] || fail "$label still '$st' after $PIPELINE_TIMEOUT_MIN min — see $WEB/-/pipelines/$id"
-    sleep "$POLL_SECONDS"
-  done
-}
 
 step "Checks on $MAIN_BRANCH"
 wait_pipeline "$MAIN_BRANCH" "$SHA" "check pipeline"
@@ -233,8 +297,11 @@ notes=$(awk -v v="$NEW" '$0 ~ "^## \\["v"\\]" {on=1; next} /^## / {on=0} on' CHA
 git tag -a "v$NEW" -m "mnemostxt $NEW
 
 $notes" || fail "git tag failed"
-for r in $PUSH_REMOTES; do git push -q "$r" "v$NEW" || fail "git push $r v$NEW failed"; done
+push_ref "v$NEW" "tag v$NEW" "/repository/tags/v$NEW"
 ok "pushed tag v$NEW"
+else
+  SHA=$(git rev-parse HEAD)
+fi
 
 if [ "$WAIT" = 0 ]; then
   warn "not waiting for the build (--no-wait): $WEB/-/pipelines?ref=v$NEW"
@@ -257,34 +324,12 @@ done
 
 # ── 6. deploy the web app ───────────────────────────────────────────────────
 if [ "$DEPLOY" = 1 ]; then
-  step "Deploy the web app"
   if [ "$(cd "$DEPLOY_DIR" && git rev-parse --show-toplevel 2>/dev/null)" != "$ROOT" ] && [ -d "$DEPLOY_DIR/.git" ]; then
     (cd "$DEPLOY_DIR" && git fetch -q --tags && git checkout -q "v$NEW") || fail "could not check out v$NEW in $DEPLOY_DIR"
     ok "$DEPLOY_DIR at v$NEW"
   fi
-  # the image build goes through gtlbrunner's capped builder when it is there
-  build_args=build
-  docker buildx inspect "$WEB_BUILDER" >/dev/null 2>&1 && build_args="build --builder $WEB_BUILDER"
-  # shellcheck disable=SC2086
-  (cd "$DEPLOY_DIR" && docker compose $build_args "$WEB_SERVICE" && docker compose up -d --no-build "$WEB_SERVICE") \
-    >"$ROOT/.release-deploy.log" 2>&1 || fail "docker compose failed (see .release-deploy.log)"
-  ok "docker compose $build_args $WEB_SERVICE, then up -d"
-  health=""
-  i=0
-  while [ $i -lt 90 ]; do   # the first health check runs after the image's interval (1 min)
-    health=$(docker inspect -f '{{.State.Health.Status}}' "$WEB_SERVICE" 2>/dev/null || echo unknown)
-    [ "$health" = healthy ] && break
-    i=$((i + 1)); sleep 2
-  done
-  [ "$health" = healthy ] || fail "container $WEB_SERVICE is '$health' (docker logs $WEB_SERVICE)"
-  ok "container healthy"
-  if [ -n "$HEALTH_URL" ]; then
-    h=$(curl -fsS --max-time 10 "$HEALTH_URL/health" 2>/dev/null || true)
-    [ "$h" = ok ] || fail "$HEALTH_URL/health did not answer ok"
-    curl -fsS --max-time 10 "$HEALTH_URL/" 2>/dev/null | grep -qi "mnemostxt $NEW" || fail "$HEALTH_URL/ does not show version $NEW"
-    ok "$HEALTH_URL serves $NEW"
-  fi
-  rm -f "$ROOT/.release-deploy.log"
+  sh "$ROOT/scripts/deploy.sh" || fail "deploy failed (above); the release itself is done. Again: sh scripts/deploy.sh"
+  ok "web app deployed"
 fi
 
 # ── 7. report ───────────────────────────────────────────────────────────────

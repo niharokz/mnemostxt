@@ -107,6 +107,8 @@ test('themes', () => {
   assert.equal(themeIdFor({ theme: 'system', themeLight: 'nord' }, true), 'nord');
   assert.equal(themeIdFor({ theme: 'light' }, false), 'nss-light');
   for (const id of Object.keys(BUILTIN)) { const th = resolveTheme(id); for (const k of COLOR_KEYS) assert.ok(th[k], `${id}.${k}`); }
+  assert.equal(resolveTheme('paper').mode, 'light');
+  assert.equal(resolveTheme('charcoal').mode, 'dark');
 });
 
 test('scratch names', () => {

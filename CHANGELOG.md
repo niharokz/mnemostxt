@@ -9,6 +9,26 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Added
+
+- Two themes: **Paper** (light, warm paper with ink-brown accents) and
+  **Charcoal** (dark, neutral grey with ember accents), also for the Android
+  widgets. View → Theme, or the theme name in the status bar.
+- `scripts/deploy.sh`: deploys the web app on its own (`--check` only checks).
+- `release.sh --continue`: a release that stopped after its tag is finished
+  (waits for its build, checks it, deploys) without a new version.
+
+### Changed
+
+- The web app deploy no longer takes it down for the build: the new image is
+  built while the old container serves, the switch takes seconds, and if the
+  new one does not answer within 90 s the previous image is put back. It waits
+  while a release build runs on the same machine.
+- `release.sh` shows every GitLab job as it starts and ends (time, link,
+  report-only jobs marked), and the release build's own steps as they finish.
+- A push that reaches GitLab but fails for another push address (a mirror
+  that is down) is a warning, no longer a stop.
+
 ## [0.0.6] - 2026-11-18
 
 ### Changed

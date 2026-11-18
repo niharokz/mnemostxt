@@ -35,7 +35,8 @@
   files. Every key can be remapped (Preferences → Keyboard).
 - **140+ languages** highlighted, plus Caddyfile, `.env` and batch files.
 - **Themes**: nss dark and light, Solarized, Nord, Gruvbox, Dracula- and
-  Monokai-style, High contrast — or your own colours (Preferences → Appearance).
+  Monokai-style, Paper, Charcoal, High contrast — or your own colours
+  (Preferences → Appearance).
 - **Encodings and line endings**: UTF-8, UTF-8 BOM, UTF-16 LE/BE, ANSI; LF, CRLF, CR.
 - **View** button for Markdown and CSV/TSV (Ctrl+Shift+V): a clean reading
   view, or a sortable, filterable table. Markdown preview beside the editor
@@ -103,7 +104,7 @@ at `/app/`. All settings: [.env.example](.env.example).
 frontend/   the editor UI (Vite + CodeMirror 6), shared by every build
 app/        the Tauri 2 app: Linux, Windows and Android (Rust commands for files)
 server/     the web server (Go, one static binary) with the UI built in
-scripts/    release (release.sh + release.conf), version checks, release builds, keystore, icons
+scripts/    release (release.sh + release.conf), web deploy (deploy.sh), version checks, release builds, keystore, icons
 docker/     the release builder image (deb + exe + apk on one Linux machine)
 assets/     logo sources
 docs/       key bindings, releasing, GitLab, the runner
@@ -131,6 +132,8 @@ Write changes under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md), then:
 ```sh
 sh scripts/release.sh           # checks, bump, push, wait for CI, tag, wait for the build,
                                 # verify the release and download links, deploy, report
+sh scripts/release.sh --continue  # a release that stopped after its tag
+sh scripts/deploy.sh            # deploy the web app again (rolls back if it does not answer)
 ```
 
 A version tag builds all three installers on your own GitLab runner (the
