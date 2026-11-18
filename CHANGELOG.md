@@ -9,6 +9,8 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+## [0.0.7] - 2026-11-18
+
 ### Added
 
 - Two themes: **Paper** (light, warm paper with ink-brown accents) and
@@ -286,7 +288,8 @@ First release. mnemostxt replaces mnemos.
 - Collapsible menu bar (Alt opens it), nss dark and light themes.
 - Web: sign-in with rate limiting and bans, home page with download links.
 
-[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.6...main
+[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.7...main
+[0.0.7]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.6...v0.0.7
 [0.0.6]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.5...v0.0.6
 [0.0.5]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.4...v0.0.5
 [0.0.4]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.3...v0.0.4
