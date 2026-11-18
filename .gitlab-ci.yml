@@ -121,7 +121,7 @@ govulncheck:
   <<: *audit
   image: golang:1.24-alpine
   script:
-    - GOFLAGS= go install golang.org/x/vuln/cmd/govulncheck@latest
+    - GOFLAGS= GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@latest
     - cd server
     - $(go env GOPATH)/bin/govulncheck ./...
 
