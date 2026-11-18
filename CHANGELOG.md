@@ -9,6 +9,8 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-11-18
+
 ### Changed
 
 - Release builder image 5 (`mnemostxt-builder:5`) compiles nothing: cargo-xwin
@@ -264,7 +266,8 @@ First release. mnemostxt replaces mnemos.
 - Collapsible menu bar (Alt opens it), nss dark and light themes.
 - Web: sign-in with rate limiting and bans, home page with download links.
 
-[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.5...main
+[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.6...main
+[0.0.6]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.5...v0.0.6
 [0.0.5]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.4...v0.0.5
 [0.0.4]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.3...v0.0.4
 [0.0.3]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.2...v0.0.3
