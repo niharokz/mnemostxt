@@ -3,7 +3,7 @@
 #   every push and merge request (GitLab shared runners)
 #     check    frontend tests + build, Go vet/test, Rust fmt/test, versions, no secrets, web image
 #     audit    known vulnerabilities in dependencies (npm, Go, Rust) and leaked secrets;
-#              report only for now (allow_failure), so a new advisory never blocks a release
+#              branch pushes only, report only (allow_failure): never blocks a release
 #   a version tag vX.Y.Z (your own Docker runner, tag "mnemostxt-app")
 #     build    mnemostxt-X.Y.Z-amd64.deb, mnemostxt-X.Y.Z-setup.exe, mnemostxt-X.Y.Z.apk
 #     release  files into the package registry + a GitLab release with permanent links:
@@ -103,33 +103,34 @@ web-image:
     - docker build -t mnemostxt:ci .
 
 # ── audit ──────────────────────────────────────────────────────────────────
-npm-audit:
+.audit: &audit
   stage: audit
-  image: node:22-alpine
   needs: []
   allow_failure: true
+  rules:
+    - if: $CI_COMMIT_BRANCH
+
+npm-audit:
+  <<: *audit
+  image: node:22-alpine
   script:
     - cd frontend
     - npm audit --omit=dev --audit-level=high
 
 govulncheck:
-  stage: audit
+  <<: *audit
   image: golang:1.24-alpine
-  needs: []
-  allow_failure: true
   script:
     - GOFLAGS= go install golang.org/x/vuln/cmd/govulncheck@latest
     - cd server
     - $(go env GOPATH)/bin/govulncheck ./...
 
 cargo-audit:
-  stage: audit
+  <<: *audit
   image: rust:1-bookworm
-  needs: []
-  allow_failure: true
   rules:
-    - if: $CI_COMMIT_TAG
-    - changes: [app/Cargo.lock]
+    - if: $CI_COMMIT_BRANCH
+      changes: [app/Cargo.lock]
   variables:
     CARGO_HOME: $CI_PROJECT_DIR/.cargo
   cache:
@@ -141,12 +142,10 @@ cargo-audit:
     - cargo audit
 
 gitleaks:
-  stage: audit
+  <<: *audit
   image:
     name: zricethezav/gitleaks:latest
     entrypoint: [""]
-  needs: []
-  allow_failure: true
   script:
     - gitleaks dir . --redact --no-banner --config .gitleaks.toml
 
@@ -159,7 +158,8 @@ release-files:
   stage: build
   <<: *tag-only
   tags: [mnemostxt-app]             # your Docker runner (docs/RUNNER.md)
-  image: mnemostxt-builder:4        # = BUILDER_TAG in scripts/build-release.sh
+  image: mnemostxt-builder:4        # = BUILDER_TAG in scripts/build-release.sh and gtlbrunner apps/mnemostxt/compose.yml
+  timeout: 2h                       # the first build after a cache reset is the slowest
   needs: [server, versions, public]
   variables:
     BUILD_CACHE: /build-cache
@@ -171,7 +171,7 @@ release-files:
     - sh scripts/upload-release.sh                     # package registry + release-notes.md
   artifacts:
     expire_in: 30 days
-    paths: [dist/release/, release-notes.md]     # incl. dist/release/logs/ (full build logs)
+    paths: [dist/release/, dist/logs/, release-notes.md]   # dist/logs/: the full build logs
 
 # ── release ────────────────────────────────────────────────────────────────
 release:

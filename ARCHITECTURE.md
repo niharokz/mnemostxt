@@ -146,13 +146,11 @@ bridge, icons, release signing. It is not committed.
 - **Share**: `ShareActivity` writes into `<notes>/<androidInbox>` (text as
   `<date>_<time>.md`, files under their names) using the folder the app last
   told it (`configure`), and closes. `Inbox.kt` holds that logic for everyone.
-- **Quick settings tile** (`CaptureTile.kt`) opens the capture box; launcher
-  shortcuts (`res/xml/mnemostxt_shortcuts.xml`) send `mnemostxt:new` and
-  `mnemostxt:daily` through the same queue as the widgets. `MainActivity`
-  takes only those two and files inside the notes folder from that queue.
 - **Privacy**: `android-prepare.py` turns Android backup off and adds data
   extraction rules (`res/xml/mnemostxt_backup_*.xml`); `androidSecure` sets
-  `FLAG_SECURE`. Share takes only other apps' `content://` links.
+  `FLAG_SECURE`. Share takes only other apps' `content://` links;
+  `MainActivity` opens only `mnemostxt:new` and files inside the notes folder
+  from the widget queue (it is exported, so any app could send one).
 - **Widgets** (`Widgets.kt`, `WidgetConfigActivity.kt`, `CaptureActivity.kt`,
   `res/`): six providers (Recent files 2×2/3×2/4×2, Pinned note 2×2/4×2, Quick
   capture 4×1) drawn with RemoteViews; the lists come from `WidgetListService`

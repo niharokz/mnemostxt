@@ -1,51 +1,54 @@
 # The release runner
 
 Check jobs run on GitLab's shared runners. The **release build** (a `vX.Y.Z`
-tag) runs on your own machine, on the shared Docker runner from the separate
-**gtlbrunner** project, which builds the releases of all your apps. Its
-README has the full set-up; this page lists only what mnemostxt needs from it.
+tag) runs on the homelab, in **gtlbrunner**: the private Docker runner that
+builds the release files of all your apps. Its `INTEGRATION.md` is the
+contract this repository follows; its `README.md` has the set-up. This page
+lists what mnemostxt needs from it.
 
 | | mnemostxt |
 |---|---|
-| Runner tag | `mnemostxt-app` (a project runner registered from this project) |
-| Release image | `mnemostxt-builder:4`, built from `docker/builder/` of this repo (`BUILDER_TAG` in `scripts/build-release.sh`, `image:` of `release-files` in `.gitlab-ci.yml`) |
-| Volumes | `mnemostxt-build-cache:/build-cache` (caches), `<gtlbrunner>/keys/mnemostxt:/keys:ro` (signing key) |
-| Key folder | `mnemostxt.jks` + `keystore.env` (`MNEMOSTXT_STORE_PASSWORD`, `MNEMOSTXT_KEY_PASSWORD`, `MNEMOSTXT_KEY_ALIAS`), made by `scripts/make-keystore.sh`; optional `release-signing` (SSH key that signs `SHA256SUMS`, [RELEASING.md](RELEASING.md)) |
-| `allowed_images` | `["mnemostxt-builder:*", "alpine:*"]` with `pull_policy = ["if-not-present"]` |
+| Runner tag | `mnemostxt-app` (a project runner; `./build.sh -gitlab mnemostxt glrt-…` registers it) |
+| Release image | `mnemostxt-builder:4`, built from `docker/builder/` of this repo. The tag is the same in three places: `image:` of `release-files` in `.gitlab-ci.yml`, `BUILDER_TAG` in `scripts/build-release.sh`, and gtlbrunner's `apps/mnemostxt/compose.yml` |
+| Volumes | `mnemostxt-build-cache:/build-cache` (caches), `keys/mnemostxt:/keys:ro` (signing key) |
+| Key folder | `mnemostxt.jks` + `keystore.env` (`MNEMOSTXT_STORE_PASSWORD`, `MNEMOSTXT_KEY_PASSWORD`, `MNEMOSTXT_KEY_ALIAS`), made once by `scripts/make-keystore.sh`; never a new one (phones refuse the update) |
+| Build | `sh scripts/build-in-container.sh deb exe apk` → `dist/release/` (the three files + `SHA256SUMS`), logs in `dist/logs/` |
 
-The gtlbrunner `docker-compose.yml` builds the image straight from GitLab:
+## Memory
 
-```yaml
-  mnemostxt-builder:
-    profiles: [build]
-    image: mnemostxt-builder:4
-    build: https://gitlab.com/niharokz/mnemostxt.git#main:docker/builder
-```
+Every job, every local build and every image build gtlbrunner runs is capped at
+`GTLB_MEM_PCT` (75 %) of the host's RAM, without swap, and only one runs at a
+time. `scripts/build-in-container.sh` reads that cap from its container and
+sizes the build to fit: cargo jobs, Gradle and Kotlin heaps, Node's heap, and
+thin LTO below 6 GB. The first line of its log shows the numbers. A build that
+still reaches the cap fails with exit 137; the host is not affected.
 
-## Keep the image through clean-ups
+Never build the image with plain `docker build` or `docker compose build` on
+the homelab: those have no memory cap. Use gtlbrunner.
 
-The image carries the label `nih.ar.keep=true` (from `docker/builder/Dockerfile`).
-A clean-up that runs `docker image prune -a` deletes it, and the next release
-fails. Use the label filter instead:
+## On the homelab (in the gtlbrunner folder)
 
 ```sh
-docker image prune -a -f --filter "label!=nih.ar.keep=true"
+./build.sh -list               # apps, images, keys, runners
+./build.sh -status -f          # what builds now, follow its log
+./build.sh -image mnemostxt    # (re)build mnemostxt-builder, memory-capped
+./build.sh mnemostxt           # a local release build → dist/mnemostxt/<version>/
 ```
 
 ## When docker/builder/Dockerfile changes
 
-1. Bump the tag in `scripts/build-release.sh` (`BUILDER_TAG`) and in
-   `.gitlab-ci.yml` (`image:` of `release-files`); push to `main`.
-2. In the gtlbrunner folder: set the same tag on `mnemostxt-builder`, then
-   `docker compose build mnemostxt-builder`.
-3. Release as usual. Until step 2 is done, the job fails with
+1. Bump the tag: `.gitlab-ci.yml` (`image:` of `release-files`) and
+   `scripts/build-release.sh` (`BUILDER_TAG`); push to `main`.
+2. In gtlbrunner: the same tag in `apps/mnemostxt/compose.yml`, then
+   `./build.sh -image mnemostxt`.
+3. Release as usual. Until step 2 is done the job fails with
    `pull access denied for mnemostxt-builder`.
 
-## Building by hand (no runner)
+## Building on another machine (no runner)
 
-On any Linux machine with Docker:
+On any Linux machine with Docker and the image already built:
 
 ```sh
 sh scripts/make-keystore.sh     # once: the Android signing key, outside the repo
-sh scripts/build-release.sh     # → dist/release/*.deb, *-setup.exe, *.apk
+sh scripts/build-release.sh     # → dist/release/*.deb, *-setup.exe, *.apk (capped at 75 % of the RAM)
 ```

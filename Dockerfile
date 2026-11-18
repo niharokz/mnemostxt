@@ -1,6 +1,7 @@
 # mnemostxt web — the editor for your notes folder, behind a sign-in.
 # ── 1. the editor UI (frontend/) ───────────────────────────────────────────
 FROM mirror.gcr.io/library/node:22-alpine AS ui
+ENV NODE_OPTIONS=--max-old-space-size=1536
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -10,6 +11,7 @@ RUN npm test && npm run build
 # ── 2. the server (server/), with the UI built in ──────────────────────────
 # Go dependencies are vendored, so this stage needs no network.
 FROM mirror.gcr.io/library/golang:1.24-alpine AS go
+ENV GOFLAGS=-p=2
 WORKDIR /src/server
 COPY server/ ./
 COPY VERSION /src/VERSION

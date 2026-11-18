@@ -18,7 +18,8 @@
 #   4. tag vX.Y.Z and push it, wait for the release pipeline (deb, exe, apk)
 #   5. post-release: the GitLab release exists with its files, the permanent
 #      download links answer
-#   6. deploy the web app (docker compose up --build) and check /health and
+#   6. deploy the web app (image built in gtlbrunner's memory-capped builder,
+#      then docker compose up) and check /health and
 #      the version it serves
 #   7. a status report
 #
@@ -129,6 +130,11 @@ if [ "$DEPLOY" = 1 ] && [ -n "$DEPLOY_DIR" ]; then
   [ -f "$DEPLOY_DIR/docker-compose.yml" ] || fail "DEPLOY_DIR=$DEPLOY_DIR has no docker-compose.yml"
   command -v docker >/dev/null || fail "docker is not installed (needed to deploy; or use --no-deploy)"
   ok "deploy target: $DEPLOY_DIR ($WEB_SERVICE)"
+  if docker buildx inspect "$WEB_BUILDER" >/dev/null 2>&1; then
+    ok "web image is built in $WEB_BUILDER (memory-capped)"
+  else
+    warn "no image builder $WEB_BUILDER (gtlbrunner: ./build.sh -limits): the web image build is not memory-capped"
+  fi
 elif [ "$DEPLOY" = 1 ]; then
   warn "DEPLOY_DIR is not set: the web app will not be deployed"
   DEPLOY=0
@@ -256,8 +262,13 @@ if [ "$DEPLOY" = 1 ]; then
     (cd "$DEPLOY_DIR" && git fetch -q --tags && git checkout -q "v$NEW") || fail "could not check out v$NEW in $DEPLOY_DIR"
     ok "$DEPLOY_DIR at v$NEW"
   fi
-  (cd "$DEPLOY_DIR" && docker compose up -d --build "$WEB_SERVICE") >"$ROOT/.release-deploy.log" 2>&1 || fail "docker compose failed (see .release-deploy.log)"
-  ok "docker compose up --build $WEB_SERVICE"
+  # the image build goes through gtlbrunner's capped builder when it is there
+  build_args=build
+  docker buildx inspect "$WEB_BUILDER" >/dev/null 2>&1 && build_args="build --builder $WEB_BUILDER"
+  # shellcheck disable=SC2086
+  (cd "$DEPLOY_DIR" && docker compose $build_args "$WEB_SERVICE" && docker compose up -d --no-build "$WEB_SERVICE") \
+    >"$ROOT/.release-deploy.log" 2>&1 || fail "docker compose failed (see .release-deploy.log)"
+  ok "docker compose $build_args $WEB_SERVICE, then up -d"
   health=""
   i=0
   while [ $i -lt 90 ]; do   # the first health check runs after the image's interval (1 min)

@@ -46,7 +46,7 @@ export const DEFAULTS = Object.freeze({
   backupDelayMs: 700, // how soon unsaved edits are copied for hot exit
   scratchFolder: 'scratch', // new, never-saved tabs are kept here (inside the app folder)
   scratchExtension: 'txt', // scratch_<device>_<date-time>.<this>
-  historyKept: 20, // earlier versions kept per note (app folder/history); 0 = no history
+  historyKept: 10, // earlier versions kept per note (app folder/history); 0 = no history
   historyMinutes: 5, // at most one version per note this often
   // notes
   dailyFolder: 'daily', // "Today's note" lives here (relative to the notes folder): <this>/2026-11-17.md

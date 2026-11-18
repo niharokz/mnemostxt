@@ -346,7 +346,6 @@ export class Shell {
   async openPaths(paths) {
     for (const p of paths) {
       if (p === 'mnemostxt:new') { this.app.newDoc(); continue; } // the widget's + button
-      if (p === 'mnemostxt:daily') { await this.app.dailyNote(); continue; } // launcher shortcut
       const st = await this.app.backend.stat(p).catch(() => null);
       if (st?.dir) { this.app.addRoot(p); this.toggleSidebar(true); } else if (st) await this.app.open(p);
       else toast(`Not found: ${p}`, { error: true });

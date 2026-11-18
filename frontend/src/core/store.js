@@ -21,7 +21,7 @@ import { appDirOf } from './settings.js';
 
 const ID_RE = /^[a-z0-9]{1,64}$/;
 const HISTORY_RE = /^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)_(.+)\.txt$/;
-const HISTORY_MAX = 2 * 1024 * 1024; // larger files are not copied
+const HISTORY_MAX = 1024 * 1024; // larger files are not copied (the app folder syncs to every device)
 
 // FNV-1a, as 8 hex digits: a short, stable name for a path.
 export function hash32(s) {

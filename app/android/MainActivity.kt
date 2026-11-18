@@ -82,12 +82,11 @@ class MainActivity : TauriActivity() {
   // ── files opened from a widget ────────────────────────────────────────────
 
   // MainActivity is exported (it is the launcher entry), so any app can send
-  // this intent: only "mnemostxt:new", "mnemostxt:daily" (launcher shortcuts)
-  // and files inside the notes folder are taken.
+  // this intent: only "mnemostxt:new" and files inside the notes folder are taken.
   private fun queueOpen(intent: Intent?) {
     if (intent?.action != Widgets.ACTION_OPEN) return
     val path = intent.getStringExtra(Widgets.EXTRA_PATH) ?: return
-    if (path != "mnemostxt:new" && path != "mnemostxt:daily" && !insideNotes(path)) { intent.removeExtra(Widgets.EXTRA_PATH); return }
+    if (path != "mnemostxt:new" && !insideNotes(path)) { intent.removeExtra(Widgets.EXTRA_PATH); return }
     synchronized(openQueue) { openQueue.add(path) }
     intent.removeExtra(Widgets.EXTRA_PATH) // not again on rotation
     runOnUiThread { webView?.evaluateJavascript("window.__mnemostxtOpenPending && window.__mnemostxtOpenPending()", null) }

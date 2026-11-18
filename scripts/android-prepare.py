@@ -139,40 +139,6 @@ def no_backup():
     print("android-prepare: app data kept out of backups")
 
 
-SHORTCUTS_MARK = "mnemostxt-shortcuts-v1"
-
-
-def shortcuts():
-    """Launcher shortcuts (res/xml/mnemostxt_shortcuts.xml) and the Quick capture
-    tile (app/android/CaptureTile.kt). Own marker: older projects get them too."""
-    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
-    s = p.read_text()
-    if SHORTCUTS_MARK in s:
-        return
-    meta = '<meta-data android:name="android.app.shortcuts" android:resource="@xml/mnemostxt_shortcuts" />'
-    # inside MainActivity, right after its opening tag
-    s, n = re.subn(r'(<activity\b[^>]*android:name="\.MainActivity"[^>]*>)', lambda m: m.group(1) + "\n            " + meta, s, count=1, flags=re.S)
-    if not n:
-        die(f"no MainActivity in {p}")
-    tile = f"""
-        <!-- {SHORTCUTS_MARK}: Quick settings tile (app/android/CaptureTile.kt) -->
-        <service
-            android:name=".CaptureTile"
-            android:exported="true"
-            android:label="@string/mnemostxt_tile"
-            android:icon="@drawable/mnemostxt_tile"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-        </service>"""
-    s, n = re.subn(r"(\n\s*</application>)", tile + r"\1", s, count=1)
-    if not n:
-        die(f"no </application> in {p}")
-    p.write_text(s)
-    print("android-prepare: launcher shortcuts and the Quick capture tile added")
-
-
 def activity():
     """Every app/android/*.kt next to the generated MainActivity.kt (which ours replaces)."""
     found = list((GEN / "app" / "src" / "main").rglob("MainActivity.kt"))
@@ -429,7 +395,6 @@ if __name__ == "__main__":
     share_target()
     widgets()
     no_backup()
-    shortcuts()
     app_name()
     check_manifest()
     activity()

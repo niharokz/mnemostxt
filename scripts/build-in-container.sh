@@ -5,8 +5,12 @@
 #   sh scripts/build-in-container.sh deb exe apk
 #
 # The log is kept short: each step prints one ✓/✗ line; the full tool output
-# sits in a collapsed section in GitLab (or in dist/release/logs/ by hand), and
-# a failing step shows its output expanded, ending with the error.
+# sits in a collapsed section in GitLab (or in dist/logs/ by hand), and a
+# failing step shows its output expanded, ending with the error.
+#
+# The gtlbrunner contract (its INTEGRATION.md): dist/release/ holds only the
+# release files and SHA256SUMS; caches live under BUILD_CACHE; nothing is
+# uploaded here; the build stays inside the job's memory cap (below).
 #
 # BUILD_CACHE  folder for cargo/target/gradle/npm/xwin caches (a Docker volume)
 # KEY_DIR      folder with mnemostxt.jks + keystore.env (read-only mount)
@@ -24,10 +28,47 @@ mkdir -p "$HOME" "$CARGO_HOME" "$CARGO_TARGET_DIR" "$GRADLE_USER_HOME" "$npm_con
 [ -d /usr/local/rustup ] && export PATH=/usr/local/cargo/bin:$PATH RUSTUP_HOME=/usr/local/rustup
 V=$(tr -d ' \n\r' < VERSION)
 OUT=dist/release
-LOGS=$OUT/logs
+LOGS=dist/logs
 TAURI=$ROOT/frontend/node_modules/.bin/tauri
+rm -rf "$OUT" "$LOGS"
 mkdir -p "$OUT" "$LOGS"
-rm -f "$OUT"/mnemostxt-* "$OUT"/SHA256SUMS "$LOGS"/*.log
+
+# ── memory: stay inside the job's cap ────────────────────────────────────────
+# gtlbrunner runs this with a hard memory limit (75 % of the host's RAM, no
+# swap); at the limit the kernel kills the build (exit 137). The limit is read
+# from the container's cgroup; without one (another machine) 75 % of the RAM
+# is assumed. Everything that takes memory is sized from it.
+cap_mb() {
+  for f in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory/memory.limit_in_bytes; do
+    [ -r "$f" ] || continue
+    v=$(cat "$f" 2>/dev/null) || continue
+    case "$v" in ''|max|*[!0-9]*) continue ;; esac
+    [ "$v" -lt 1099511627776 ] && { echo $((v / 1048576)); return; } # cgroup v1 "unlimited" is huge
+  done
+  awk '$1 == "MemTotal:" { printf "%d\n", $2 * 0.75 / 1024 }' /proc/meminfo
+}
+clamp() { if [ "$1" -lt "$2" ]; then echo "$2"; elif [ "$1" -gt "$3" ]; then echo "$3"; else echo "$1"; fi; }
+MEM_MB=$(cap_mb)
+CPUS=$(nproc 2>/dev/null || echo 2)
+GRADLE_MB=$(clamp $((MEM_MB / 5)) 1024 3072)   # the Gradle JVM
+KOTLIN_MB=$(clamp $((MEM_MB / 8)) 512 2048)    # the Kotlin compile daemon
+NODE_MB=$(clamp $((MEM_MB / 4)) 1024 4096)     # Vite, the Tauri CLI
+# rustc runs next to Gradle in the Android build: ~1.5 GB per job, after the JVMs
+JOBS=$(clamp $(((MEM_MB - GRADLE_MB - KOTLIN_MB - 1024) / 1536)) 1 "$CPUS")
+export CARGO_BUILD_JOBS=$JOBS NODE_OPTIONS="--max-old-space-size=$NODE_MB"
+LTO="fat (Cargo.toml)"
+if [ "$MEM_MB" -lt 6144 ]; then  # fat LTO's last link may not fit in a small cap
+  export CARGO_PROFILE_RELEASE_LTO=thin CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+  LTO=thin
+fi
+# Gradle reads GRADLE_USER_HOME/gradle.properties before the project's own
+cat > "$GRADLE_USER_HOME/gradle.properties" <<EOF
+# written by scripts/build-in-container.sh for every build (memory cap ${MEM_MB} MB)
+org.gradle.jvmargs=-Xmx${GRADLE_MB}m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+org.gradle.daemon=false
+org.gradle.workers.max=$(clamp "$JOBS" 1 4)
+kotlin.daemon.jvmargs=-Xmx${KOTLIN_MB}m
+EOF
 
 # ── log helpers ──────────────────────────────────────────────────────────────
 now() { date +%s; }
@@ -87,6 +128,7 @@ frontend() {
 
 T0=$(now)
 echo "mnemostxt $V — building: $*"
+echo "memory cap ${MEM_MB} MB: cargo jobs $JOBS, LTO $LTO, Gradle ${GRADLE_MB} MB, Kotlin ${KOTLIN_MB} MB, Node ${NODE_MB} MB"
 echo
 step checks "Version check" sh scripts/check-version.sh
 step frontend "Frontend dependencies and tests" frontend
@@ -99,17 +141,6 @@ for t in "$@"; do
   esac
 done
 (cd "$OUT" && sha256sum mnemostxt-* > SHA256SUMS)
-# Optional: sign SHA256SUMS with an SSH key in the key folder (docs/RELEASING.md).
-# Anyone can then check a download with ssh-keygen -Y verify (see the release notes).
-if [ -f "$KEY_DIR/release-signing" ] && command -v ssh-keygen >/dev/null 2>&1; then
-  k=$(mktemp); cp "$KEY_DIR/release-signing" "$k"; chmod 600 "$k"
-  if ssh-keygen -q -Y sign -f "$k" -n mnemostxt-release "$OUT/SHA256SUMS" >/dev/null 2>&1; then
-    echo "✓ SHA256SUMS signed"
-  else
-    echo "✗ signing SHA256SUMS failed (the release goes on unsigned)"
-  fi
-  rm -f "$k"
-fi
 
 # ── summary ──────────────────────────────────────────────────────────────────
 echo

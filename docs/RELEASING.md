@@ -33,20 +33,6 @@ chmod 600 ~/.config/mnemostxt/release.env
 Anything in `scripts/release.conf` can be overridden there. Nothing personal
 goes in the repository.
 
-## Once (optional): sign the checksums
-
-With an SSH key in the runner's key folder, every release also gets
-`SHA256SUMS.sig`, and its notes say how to check a download. On the runner
-machine, in the mnemostxt key folder (the one mounted at `/keys`):
-
-```sh
-ssh-keygen -t ed25519 -N '' -C mnemostxt-release -f release-signing
-```
-
-Commit the public half as `docs/release-signing.pub` (it is meant to be
-public); keep `release-signing` only in the key folder. Without the key the
-release is the same, just unsigned.
-
 ## Every release
 
 ```sh
@@ -65,7 +51,7 @@ What it does, stopping at the first problem with a clear ✗ line:
 | Push | commit `release: mnemostxt X.Y.Z`, push `main`, **wait for its check pipeline** |
 | Tag | annotated `vX.Y.Z` (message = the changelog section), push, **wait for the release pipeline** (deb, exe, apk; ~10–20 min, the first one longer) |
 | Verify | the GitLab release exists with its 4 files; the 3 permanent download links answer |
-| Deploy | `docker compose up -d --build mnemostxt` in `DEPLOY_DIR`, wait for *healthy*, check `HEALTH_URL/health` and that the About page shows the new version |
+| Deploy | build the web image in gtlbrunner's memory-capped builder (`WEB_BUILDER`, `gtlb-builder`), `docker compose up -d --no-build mnemostxt` in `DEPLOY_DIR`, wait for *healthy*, check `HEALTH_URL/health` and that the About page shows the new version |
 | Report | every step with ✓ / ! / ✗ and the links |
 
 Options: `--yes` (no question), `--no-deploy`, `--no-wait` (push the tag and

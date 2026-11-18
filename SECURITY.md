@@ -33,7 +33,7 @@ email), not in a public issue.
 - Android: no app data in Android backups or phone-to-phone transfers; Share
   accepts only content shared by another app (never `file://` links or the
   app's own files, which could copy private data into shared storage), up to
-  200 MB a file; a widget or shortcut can only open files inside the notes
+  200 MB a file; a widget can only open files inside the notes
   folder; optional `FLAG_SECURE` (hidden in Recents, no screenshots).
 
 **Web app (server/)**
@@ -69,5 +69,4 @@ The Android signing key stays on the build machine (outside the repository);
 `scripts/check-public.sh` blocks commits of keys, passwords, hashes and any
 words listed in your own `.private-words`. Every push also runs `npm audit`,
 `govulncheck`, `cargo audit` and `gitleaks` (report only). Each release has a
-`SHA256SUMS`, signed with an SSH key when one is in the runner's key folder
-(see the release notes for how to check a download).
+`SHA256SUMS` for its files.
