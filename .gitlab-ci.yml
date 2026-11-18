@@ -158,7 +158,7 @@ release-files:
   stage: build
   <<: *tag-only
   tags: [mnemostxt-app]             # your Docker runner (docs/RUNNER.md)
-  image: mnemostxt-builder:4        # = BUILDER_TAG in scripts/build-release.sh and gtlbrunner apps/mnemostxt/compose.yml
+  image: mnemostxt-builder:5        # = BUILDER_TAG in scripts/build-release.sh and gtlbrunner apps/mnemostxt/compose.yml
   timeout: 2h                       # the first build after a cache reset is the slowest
   needs: [server, versions, public]
   variables:

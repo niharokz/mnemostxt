@@ -9,6 +9,22 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Changed
+
+- Release builder image 5 (`mnemostxt-builder:5`) compiles nothing: cargo-xwin
+  is the checked (sha256) prebuilt, the Rust base is pinned (1.97.0-bookworm),
+  and downloads run niced with at most 2 jobs.
+- The release build limits itself: CPUs from the job's quota, else all but 3
+  (never all of them); cargo, Gradle, make and Node stay within that; planned
+  memory at most 70 % of the cap; thin LTO unless the cap is 10 GB or more and
+  `MNEMOSTXT_FAT_LTO=1`; nice 10 and idle I/O; targets one after another with
+  Gradle and Kotlin daemons stopped between them. One `limits:` line at the
+  start shows it all.
+- The build pauses while the CPU is at 85 °C or more and goes on below 75 °C
+  (`MNEMOSTXT_TEMP_PAUSE`, `MNEMOSTXT_TEMP_RESUME`; 0 turns it off).
+- Out of memory (exit 137) now says the cap, the step and how to fix it.
+- `scripts/build-release.sh` gives the container all CPUs but 3.
+
 ## [0.0.5] - 2026-11-18
 
 ### Added

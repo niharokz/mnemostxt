@@ -135,7 +135,10 @@ sh scripts/release.sh           # checks, bump, push, wait for CI, tag, wait for
 
 A version tag builds all three installers on your own GitLab runner (the
 shared gtlbrunner project) and publishes a release with permanent download
-links. Build them by hand on any Linux machine with Docker:
+links. The build in image `mnemostxt-builder:5` limits itself so the machine
+stays healthy: a share of the CPUs (the job's quota, else all but 3), at most
+70 % of the memory cap, low priority, one target at a time, and a pause while
+the CPU is above 85 °C. Build them by hand on any Linux machine with Docker:
 
 ```sh
 sh scripts/make-keystore.sh     # once: the Android signing key, outside the repo

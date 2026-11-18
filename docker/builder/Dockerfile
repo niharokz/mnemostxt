@@ -1,10 +1,14 @@
 # mnemostxt release builder: everything needed to build the three release
-# files on one Linux machine (your own GitLab runner):
+# files on one Linux machine (gtlbrunner on the homelab):
 #   Linux    .deb          (Tauri, webkit2gtk)
 #   Windows  setup.exe     (Tauri NSIS, cross-compiled with cargo-xwin)
 #   Android  .apk          (Tauri, Android SDK + NDK)
-# Built once per BUILDER_TAG (scripts/build-release.sh) and reused.
-FROM mirror.gcr.io/library/rust:1-bookworm
+#
+# Light to build: nothing is compiled here, every layer only downloads and
+# unpacks, at most 2 jobs at a time and at low priority. Base image and tools
+# are pinned, so a rebuild gives the same image and reuses its cached layers.
+# The tag (mnemostxt-builder:5) is image: of release-files in .gitlab-ci.yml.
+FROM mirror.gcr.io/library/rust:1.97.0-bookworm
 
 # Kept by a cleanup that runs: docker image prune -a -f --filter "label!=nih.ar.keep=true"
 LABEL nih.ar.keep="true"
@@ -14,44 +18,56 @@ ARG ANDROID_PLATFORM=36
 ARG ANDROID_BUILD_TOOLS=36.0.0
 ARG ANDROID_NDK=27.3.13750724
 ARG CMDLINE_TOOLS=13114758
+# cargo-xwin: the prebuilt static binary of the release, checked by sha256 (= its .sha256 file)
+ARG XWIN_VERSION=0.23.1
+ARG XWIN_SHA256=c492c6dfb7e5ac0eee586b796e0fc950ba13077e7f0bbb046f445d71790d5360
 
 ENV DEBIAN_FRONTEND=noninteractive \
     ANDROID_HOME=/opt/android-sdk \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     XWIN_ACCEPT_LICENSE=1 \
-    CARGO_TERM_COLOR=never
+    CARGO_TERM_COLOR=never \
+    RUSTUP_IO_THREADS=2
 
-# Linux (webkit2gtk), Windows cross tools (nsis, lld, clang), Java for Gradle
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 1. System packages: Linux (webkit2gtk), Windows cross tools (nsis, lld, clang),
+#    Java for Gradle, procps (the build stops leftover daemons), Node.
+RUN nice -n 10 sh -c 'apt-get update && apt-get install -y --no-install-recommends \
       libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev \
-      build-essential curl file unzip xz-utils python3 ca-certificates git \
+      build-essential curl file unzip xz-utils python3 ca-certificates git procps \
       nsis lld llvm clang openjdk-17-jdk-headless \
  && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*'
 
-# Android SDK, build tools and NDK
-RUN mkdir -p $ANDROID_HOME/cmdline-tools \
- && curl -fsSL -o /tmp/tools.zip https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS}_latest.zip \
+# 2. Android SDK: command-line tools, platforms (the app's and the one Tauri's
+#    Gradle project compiles against), build tools, NDK. Java limited to 2 CPUs.
+RUN JAVA_TOOL_OPTIONS=-XX:ActiveProcessorCount=2 nice -n 10 sh -c 'set -e \
+ && mkdir -p $ANDROID_HOME/cmdline-tools \
+ && curl -fsSL --retry 5 -o /tmp/tools.zip https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS}_latest.zip \
  && unzip -q /tmp/tools.zip -d $ANDROID_HOME/cmdline-tools && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest \
  && rm /tmp/tools.zip \
  && yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null \
  && $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install \
-      "platform-tools" "platforms;android-${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" >/dev/null
+      "platform-tools" "platforms;android-${ANDROID_PLATFORM}" "platforms;android-37.0" \
+      "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}" >/dev/null'
 ENV NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK \
     PATH=$PATH:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools
 
-# Rust targets and the Windows cross-linker wrapper
-RUN rustup target add x86_64-pc-windows-msvc aarch64-linux-android \
- && cargo install --locked cargo-xwin \
- && rm -rf $CARGO_HOME/registry $CARGO_HOME/git
+# 3. Rust targets (downloads only) and cargo-xwin (prebuilt, no cargo install).
+RUN nice -n 10 sh -c 'set -e \
+ && rustup target add x86_64-pc-windows-msvc aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android \
+ && curl -fsSL --retry 5 -o /tmp/xwin.tgz "https://github.com/rust-cross/cargo-xwin/releases/download/v${XWIN_VERSION}/cargo-xwin-v${XWIN_VERSION}.x86_64-unknown-linux-musl.tar.gz" \
+ && echo "${XWIN_SHA256}  /tmp/xwin.tgz" | sha256sum -c - \
+ && tar -xzf /tmp/xwin.tgz -C /usr/local/cargo/bin cargo-xwin \
+ && chmod 755 /usr/local/cargo/bin/cargo-xwin && rm /tmp/xwin.tgz \
+ && cargo-xwin --version'
 
-# Tauri's Windows-installer tools, baked in so the release build never has to
-# download them. On Linux the bundler (tauri-cli 2.12, pinned in
-# frontend/package-lock.json) checks <cache>/tauri/NSIS for NSIS.exe and the
-# nsis_tauri_utils plugin by SHA-1 and re-downloads both from GitHub on every
-# build when they are missing. scripts/build-in-container.sh points
-# XDG_CACHE_HOME here. Hashes = the constants in tauri-bundler 2.10.x.
+# 4. Tauri's Windows-installer tools, baked in so the release build never has to
+#    download them. On Linux the bundler (tauri-cli 2.12, pinned in
+#    frontend/package-lock.json) checks <cache>/tauri/NSIS for NSIS.exe and the
+#    nsis_tauri_utils plugin by SHA-1 and re-downloads both from GitHub on every
+#    build when they are missing. scripts/build-in-container.sh points
+#    XDG_CACHE_HOME here. Hashes = the constants in tauri-bundler 2.10.x.
 ARG NSIS_ZIP=https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip
 ARG NSIS_ZIP_SHA1=db14f8af2ea346b786c6ae19343f61aaf5e09b8e
 ARG NSIS_EXE_SHA1=6d45d4e8ccf18fe1fdac9164058f356102a2ecf2
@@ -66,15 +82,9 @@ RUN set -e; T=/opt/tauri-tools/tauri/NSIS; mkdir -p $T/Plugins/x86-unicode/addit
  && echo "$NSIS_UTILS_SHA1  $T/Plugins/x86-unicode/additional/nsis_tauri_utils.dll" | sha1sum -c - \
  && rm /tmp/nsis.zip && chmod -R a+rwX /opt/tauri-tools
 
-# Tauri's installer script includes Win\RestartManager.nsh, which first ships
-# with NSIS 3.09; Debian 12 has 3.08. This is NSIS's own file (zlib licence),
-# taken unchanged from NSIS 3.09. Last layer, so the heavy ones stay cached.
+# 5. Tauri's installer script includes Win\RestartManager.nsh, which first ships
+#    with NSIS 3.09; Debian 12 has 3.08. This is NSIS's own file (zlib licence),
+#    taken unchanged from NSIS 3.09. Last layer, so the heavy ones stay cached.
 COPY RestartManager.nsh /usr/share/nsis/Include/Win/RestartManager.nsh
-
-# What the Android build would otherwise download in every job: the SDK
-# platform Tauri's Gradle project compiles against, and the Rust targets
-# `tauri android init` installs.
-RUN sdkmanager --install "platforms;android-37.0" >/dev/null \
- && rustup target add armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
 WORKDIR /src

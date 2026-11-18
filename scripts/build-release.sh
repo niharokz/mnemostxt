@@ -10,14 +10,15 @@
 #
 # On the homelab use gtlbrunner instead: ./build.sh mnemostxt (docs/RUNNER.md).
 # This script is for another Linux machine with Docker. Like gtlbrunner it caps
-# the build at MNEMOSTXT_MEM_PCT (default 75) % of the RAM, without swap, and it
-# never builds the image itself (an image build has no memory cap).
+# the build at MNEMOSTXT_MEM_PCT (default 75) % of the RAM, without swap, and at
+# all CPUs but 3 (at least 1); it never builds the image itself (an image build
+# has no memory cap).
 # The Android key comes from MNEMOSTXT_KEY_DIR
 # (default $KEYS_HOME/.mnemostxt-keys, else ~/.local/share/keys/.mnemostxt-keys).
 set -eu
 cd "$(dirname "$0")/.."
 TARGETS=${*:-deb exe apk}
-BUILDER_TAG=4   # = image: of release-files in .gitlab-ci.yml (and gtlbrunner's apps/mnemostxt/compose.yml)
+BUILDER_TAG=5   # = image: of release-files in .gitlab-ci.yml (and gtlbrunner's apps/mnemostxt/compose.yml)
 IMAGE=mnemostxt-builder:$BUILDER_TAG
 KEY_DIR=${MNEMOSTXT_KEY_DIR:-${KEYS_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/keys}/.mnemostxt-keys}
 PCT=${MNEMOSTXT_MEM_PCT:-75}
@@ -25,6 +26,8 @@ PCT=${MNEMOSTXT_MEM_PCT:-75}
 case "$PCT" in ''|*[!0-9]*) echo "✗ MNEMOSTXT_MEM_PCT=$PCT: use a whole number from 10 to 95"; exit 2 ;; esac
 [ "$PCT" -ge 10 ] && [ "$PCT" -le 95 ] || { echo "✗ MNEMOSTXT_MEM_PCT=$PCT: use a whole number from 10 to 95"; exit 2; }
 MEM=$(awk -v p="$PCT" '$1 == "MemTotal:" { printf "%dm", $2 * p / 100 / 1024 }' /proc/meminfo)
+N=$(nproc 2>/dev/null || echo 2)
+CPUS=$((N > 4 ? N - 3 : 1))   # a quota the build reads (scripts/build-in-container.sh)
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "✗ $IMAGE is not built on this machine."
@@ -41,10 +44,10 @@ esac
 KEYS_MOUNT=""
 [ -d "$KEY_DIR" ] && KEYS_MOUNT="-v $KEY_DIR:/keys:ro"
 
-echo "▸ $IMAGE, memory cap $MEM ($PCT % of the RAM, no swap)"
+echo "▸ $IMAGE, memory cap $MEM ($PCT % of the RAM, no swap), $CPUS of $N CPUs"
 # runs as you, so files in dist/ are yours; caches live in a Docker volume
 # shellcheck disable=SC2086
-docker run --rm --user "$(id -u):$(id -g)" --memory "$MEM" --memory-swap "$MEM" \
+docker run --rm --user "$(id -u):$(id -g)" --memory "$MEM" --memory-swap "$MEM" --cpus "$CPUS" \
   -e BUILD_CACHE=/cache -e KEY_DIR=/keys \
   -v mnemostxt-build-cache:/cache -v "$PWD:/src" -w /src $KEYS_MOUNT \
   "$IMAGE" sh scripts/build-in-container.sh $TARGETS || {

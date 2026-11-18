@@ -189,6 +189,26 @@ Deleting moves an item to `<app folder>/trash/` and appends a line to
 Empty trash deletes items older than `trashDays`. Files outside the notes
 folder (desktop) go to the system trash.
 
+## Release build (`docker/builder/`, `scripts/build-in-container.sh`)
+
+The builder image `mnemostxt-builder:5` only downloads and unpacks: a pinned
+`rust:1.97.0-bookworm`, Debian packages, Node, the Android SDK and NDK, the
+Rust targets, the prebuilt `cargo-xwin` (sha256-checked) and Tauri's NSIS
+tools. Nothing is compiled, at most 2 jobs at a time, at low priority.
+
+`build-in-container.sh deb exe apk` builds the three targets one after another
+and limits itself first (the line `limits: …` at the top of its log):
+
+| | |
+|---|---|
+| CPUs | the cgroup quota (`cpu.max`), else all but 3, at least 1; `MNEMOSTXT_CPUS` lowers it. cargo jobs, Gradle workers, `make`, CMake, Rayon, Go (esbuild), libuv and the JVMs' processor count stay at or below it |
+| Memory | from the cgroup cap (`memory.max`, else 75 % of the RAM): Gradle (Kotlin compiles inside it), Node and cargo jobs × 1.5 GB planned to stay under 70 % of the cap; the Android build gets fewer cargo jobs because Gradle runs beside rustc |
+| LTO | thin with 16 codegen units; fat (Cargo.toml) only with `MNEMOSTXT_FAT_LTO=1` and a cap of 10 GB or more |
+| Priority | `nice 10` and idle I/O for everything it starts |
+| Temperature | every 5 s the hottest sensor is read; at 85 °C every build process is stopped until 75 °C (`MNEMOSTXT_TEMP_PAUSE`, `MNEMOSTXT_TEMP_RESUME`; 0 = off) |
+| Between targets | leftover Gradle and Kotlin daemons are stopped |
+| Exit 137 | "out of memory at the … MB cap in step …", with the fix |
+
 ## Versions
 
 `VERSION`, `frontend/package.json`, `app/Cargo.toml` and `app/tauri.conf.json`
