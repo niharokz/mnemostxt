@@ -47,7 +47,7 @@ frontend:
 
 server:
   stage: check
-  image: golang:1.24-alpine
+  image: golang:1.27-alpine
   needs: []
   script:
     - cd server
@@ -119,7 +119,7 @@ npm-audit:
 
 govulncheck:
   <<: *audit
-  image: golang:1.24-alpine
+  image: golang:1.27-alpine
   script:
     - GOFLAGS= GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@latest
     - cd server
@@ -137,6 +137,7 @@ cargo-audit:
     key: cargo-audit
     paths: [.cargo/bin]
   script:
+    - export PATH="$CARGO_HOME/bin:$PATH"   # the cached cargo-audit lives here
     - command -v cargo-audit >/dev/null || cargo install --locked cargo-audit
     - cd app
     - cargo audit

@@ -163,8 +163,9 @@ bridge, icons, release signing. It is not committed.
 
 ## Web (`server/`)
 
-Go 1.24, standard library plus vendored bcrypt; one static binary in a
-`scratch` image. `internal/vault` jails every path inside the notes folder
+Built with Go 1.27 (the module needs 1.24 or newer), standard library plus
+vendored bcrypt; one static binary in a `scratch` image. `internal/vault`
+jails every path inside the notes folder
 (lexical check plus symlink resolution) and opens files through an `os.Root`
 handle. `internal/auth` handles the sign-in (owner with an optional
 authenticator code, `totp.go`; an optional demo account), sessions and bans;

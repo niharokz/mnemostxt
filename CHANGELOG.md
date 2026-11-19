@@ -9,6 +9,15 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Fixed
+
+- The web server is built with Go 1.27 (was 1.24, which no longer gets
+  security fixes). This removes the 36 standard-library issues `govulncheck`
+  reported, among them ones in `os.Root`, `net/http`, `net/url` and
+  `html/template`.
+- The `cargo-audit` check ran nothing: it now finds its cached tool. It
+  reports no vulnerabilities in the app's Rust dependencies.
+
 ## [0.0.7] - 2026-11-18
 
 ### Added

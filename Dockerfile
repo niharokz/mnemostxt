@@ -10,7 +10,7 @@ RUN npm test && npm run build
 
 # ── 2. the server (server/), with the UI built in ──────────────────────────
 # Go dependencies are vendored, so this stage needs no network.
-FROM mirror.gcr.io/library/golang:1.24-alpine AS go
+FROM mirror.gcr.io/library/golang:1.27-alpine AS go
 ENV GOFLAGS=-p=2
 WORKDIR /src/server
 COPY server/ ./
