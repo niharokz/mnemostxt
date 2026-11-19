@@ -9,6 +9,8 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+## [0.0.9] - 2026-11-19
+
 ### Fixed
 
 - The web server is built with Go 1.27 (was 1.24, which no longer gets
@@ -297,7 +299,8 @@ First release. mnemostxt replaces mnemos.
 - Collapsible menu bar (Alt opens it), nss dark and light themes.
 - Web: sign-in with rate limiting and bans, home page with download links.
 
-[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.7...main
+[Unreleased]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.9...main
+[0.0.9]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.7...v0.0.9
 [0.0.7]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.6...v0.0.7
 [0.0.6]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.5...v0.0.6
 [0.0.5]: https://gitlab.com/niharokz/mnemostxt/-/compare/v0.0.4...v0.0.5

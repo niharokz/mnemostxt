@@ -1,6 +1,6 @@
 [package]
 name = "mnemostxt"
-version = "0.0.7"
+version = "0.0.9"
 description = "Just a notepad for your notes folder"
 authors = ["Nihar"]
 license = "MIT"
