@@ -4,6 +4,12 @@ import { h, icon } from './dom.js';
 
 let open = 0;
 export const dialogOpen = () => open > 0;
+// A full-window view of its own (Compare) counts as a dialog: the app's
+// shortcuts stay off while it is open. Returns the release function.
+export function holdDialog() { open++; let done = false; return () => { if (!done) { done = true; open--; } }; }
+// Menus and toasts go into the top open modal dialog: outside it they would be
+// covered and inert.
+const layer = () => [...document.querySelectorAll('dialog[open]')].pop() || document.body;
 
 export function sheet({ title, body, actions = [], wide = false, onClose }) {
   return new Promise((resolve) => {
@@ -58,7 +64,7 @@ let toastEl, toastTimer;
 export function toast(msg, { error = false, ms = 2600 } = {}) {
   toastEl?.remove();
   toastEl = h('div.toast', { class: error ? 'err' : '', role: 'status' }, msg);
-  document.body.append(toastEl);
+  layer().append(toastEl);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl?.remove(), ms);
 }
@@ -70,7 +76,7 @@ export function contextMenu(x, y, items) {
     ? h('div.ctx-sep')
     : h('button.ctx-item', { class: it.danger ? 'danger' : '', disabled: it.disabled, onclick: () => { m.remove(); it.run(); } },
       h('span', {}, it.label), it.keys ? h('kbd', {}, it.keys) : null)));
-  document.body.append(m);
+  layer().append(m);
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 6) + 'px';
   m.style.top = Math.min(y, innerHeight - r.height - 6) + 'px';

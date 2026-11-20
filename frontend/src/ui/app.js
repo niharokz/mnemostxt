@@ -85,7 +85,7 @@ export class App {
   // ── settings ─────────────────────────────────────────────
   onSettings(keys) {
     this.applyLook();
-    const lookOnly = ['theme', 'themeDark', 'themeLight', 'themes', 'windowOpacity', 'fontSize', 'mobileFontSize', 'fontFamily', 'lineHeight'];
+    const lookOnly = ['theme', 'themeDark', 'themeLight', 'themes', 'windowOpacity', 'panelOpacity', 'fontSize', 'mobileFontSize', 'fontFamily', 'lineHeight', 'androidIcon', 'platforms'];
     if (keys.some((k) => !lookOnly.includes(k))) {
       for (const d of this.docs) d.configStale = true;
       if (this.active?.kind === 'text') this.reconfigureActive();
@@ -106,13 +106,18 @@ export class App {
         be.android.configure({ notesDir: be.notesRoot, appDir: be.appDir, inbox: s.androidInbox, lock: s.androidLock, lockAfterMinutes: s.androidLockAfterMinutes, secure: s.androidSecure });
       } catch (e) { console.warn('android configure', e); }
     }
+    // the launcher icon (Preferences → This device → Launcher icon)
+    if (be.android?.setIcon && has('androidIcon')) {
+      try { be.android.setIcon(s.androidIcon); } catch (e) { console.warn('android icon', e); }
+    }
   }
 
   applyLook() {
     const s = this.settings.values;
     const root = document.documentElement;
     const theme = resolveTheme(themeIdFor(s), s.themes);
-    applyTheme(root, theme, this.backend.kind === 'desktop' ? s.windowOpacity : 1);
+    const desk = this.backend.kind === 'desktop';
+    applyTheme(root, theme, desk ? s.windowOpacity : 1, desk ? s.panelOpacity : 0);
     this.backend.setWindowTheme?.(theme.mode);
     root.style.setProperty('--ed-font-size', this.fontSize() + 'px');
     if (s.fontFamily) root.style.setProperty('--ed-font', `${JSON.stringify(s.fontFamily)}, "JetBrains Mono", var(--nss-mono)`); else root.style.removeProperty('--ed-font');

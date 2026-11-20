@@ -5,6 +5,11 @@
 // Two things are per device and live next to the notes folder path instead
 // (desktop and Android): this device's name (used in scratch file names) and
 // the app folder.
+//
+// Per platform (0.1.0): each row has a pin, "All devices" or "Linux only"
+// (Windows, Android, …). A pinned setting keeps its own value on this platform
+// (settings.json → "platforms"). Window and panel opacity, the font, the tray
+// and the Android icon are always per platform.
 import { sheet, toast, alert } from './dialogs.js';
 import { h } from './dom.js';
 import { allThemes, resolveTheme, themeIdFor, COLOR_GROUPS, COLOR_LABELS, hexOrNull, BUILTIN } from '../core/themes.js';
@@ -29,22 +34,34 @@ export function showSettings(app, ui, first = 'appearance') {
   let current = first;
 
   // ── small controls ───────────────────────────────────────
+  // "All devices" ⇄ "Linux only": where a change to this setting goes
+  const pin = (key) => {
+    if (!key) return null;
+    const where = s.platformLabel;
+    if (s.perPlatform(key)) return h('span.pin.on.fixed', { title: `Always kept separately for ${where}` }, `${where} only`);
+    const b = h('button.pin', { type: 'button', onclick: (e) => { e.preventDefault(); e.stopPropagation(); s.pin(key, !s.pinned(key)); render(); } });
+    const on = s.pinned(key);
+    b.classList.toggle('on', on);
+    b.textContent = on ? `${where} only` : 'All devices';
+    b.title = on ? `Has its own value on ${where}. Click to use the shared value again.` : `Shared by every device. Click to keep a separate value on ${where}.`;
+    return b;
+  };
   const seg = (key, options) => {
-    const box = h('div.seg', { role: 'group' });
+    const box = h('div.seg', { role: 'group', 'data-key': key });
     const draw = () => box.replaceChildren(...options.map(([val, label]) => h('button', { type: 'button', 'aria-pressed': String(s.get(key) === val), onclick: () => { s.set({ [key]: val }); draw(); } }, label)));
     draw();
     return box;
   };
-  const num = (key, min, max, step = 1) => h('input', { type: 'number', min, max, step, value: s.get(key), oninput: (e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= min && n <= max) s.set({ [key]: n }); } });
+  const num = (key, min, max, step = 1) => h('input', { type: 'number', min, max, step, value: s.get(key), 'data-key': key, oninput: (e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= min && n <= max) s.set({ [key]: n }); } });
   const text = (key, { placeholder = '', pattern } = {}) => h('input', {
-    value: s.get(key), placeholder, spellcheck: 'false', autocapitalize: 'off',
+    value: s.get(key), placeholder, 'data-key': key, spellcheck: 'false', autocapitalize: 'off',
     onchange: (e) => { const v = e.target.value.trim(); if (pattern && !pattern.test(v)) { toast('Not a valid value', { error: true }); e.target.value = s.get(key); return; } s.set({ [key]: v }); },
   });
   const sw = (key, label, hint, after) => h('label.sw', {},
     h('input', { type: 'checkbox', checked: !!s.get(key), onchange: (e) => { s.set({ [key]: e.target.checked }); after?.(e.target.checked); } }),
-    h('span', {}, label, hint ? h('small', {}, hint) : null));
-  const row = (label, control, hint) => h('div.set-row', {}, h('div', {}, h('div.set-l', {}, label), hint ? h('small', {}, hint) : null), control);
-  const select = (key, options) => h('select', { onchange: (e) => s.set({ [key]: e.target.value }) },
+    h('span', {}, h('span.set-l', {}, label, pin(key)), hint ? h('small', {}, hint) : null));
+  const row = (label, control, hint) => h('div.set-row', {}, h('div', {}, h('div.set-l', {}, label, pin(control?.dataset?.key)), hint ? h('small', {}, hint) : null), control);
+  const select = (key, options) => h('select', { 'data-key': key, onchange: (e) => s.set({ [key]: e.target.value }) },
     options.map(([v, l]) => h('option', { value: v, selected: s.get(key) === v }, l)));
 
   // ── sections ─────────────────────────────────────────────
@@ -56,7 +73,10 @@ export function showSettings(app, ui, first = 'appearance') {
       s.get('theme') === 'system' ? row('…when the system is dark', select('themeDark', themeOptions())) : null,
       s.get('theme') === 'system' ? row('…when the system is light', select('themeLight', themeOptions())) : null,
       themeEditor(),
-      be.kind === 'desktop' ? row('Window opacity', opacitySlider(), 'Below 100% the window background is see-through. Linux needs a compositor (picom, KWin, Mutter); shared by all desktops.') : null,
+      be.kind === 'desktop' ? row('Window opacity', slider('windowOpacity'), be.platform === 'linux'
+        ? 'Below 100% the editor background is see-through. Needs a compositor (picom, KWin, Mutter). picom can also blur what is behind: blur-background = true; blur-method = "dual_kawase"; in picom.conf.'
+        : 'Below 100% the editor background is see-through.') : null,
+      be.kind === 'desktop' ? row('Panel opacity', slider('panelOpacity', { auto: true }), 'Sidebar, tabs, menus and status bar. Auto: a little more solid than the window.') : null,
       row('Font size', num(app.mobile ? 'mobileFontSize' : 'fontSize', 8, 40), app.mobile ? 'On phones' : 'On desktop and web'),
       row('Font', text('fontFamily', { placeholder: 'JetBrains Mono' }), 'Any installed monospace font; empty = JetBrains Mono'),
       row('Line height', num('lineHeight', 1, 3, 0.05)),
@@ -148,11 +168,13 @@ export function showSettings(app, ui, first = 'appearance') {
     return box;
   }
 
-  function opacitySlider() {
-    const out = h('span.muted', {}, Math.round(s.get('windowOpacity') * 100) + '%');
-    const input = h('input', { type: 'range', min: 20, max: 100, step: 1, value: Math.round(s.get('windowOpacity') * 100),
-      oninput: (e) => { s.set({ windowOpacity: Number(e.target.value) / 100 }); out.textContent = e.target.value + '%'; } });
-    return h('div.row', {}, input, out);
+  // 20–100 %; with auto, the far left (15) means "auto" (stored as 0)
+  function slider(key, { auto = false } = {}) {
+    const label = (v) => (auto && !v ? 'Auto' : Math.round(v * 100) + '%');
+    const out = h('span.muted', {}, label(s.get(key)));
+    const input = h('input', { type: 'range', min: auto ? 15 : 20, max: 100, step: 1, value: auto && !s.get(key) ? 15 : Math.round(s.get(key) * 100),
+      oninput: (e) => { const n = Number(e.target.value); const v = auto && n < 20 ? 0 : n / 100; s.set({ [key]: v }); out.textContent = label(v); } });
+    return h('div.row', { 'data-key': key }, input, out);
   }
 
   // ── key bindings: type keys like "Ctrl+Shift+D, F5" ─────
@@ -212,7 +234,7 @@ export function showSettings(app, ui, first = 'appearance') {
     }
     if (be.kind === 'desktop' && be.setTray) {
       out.push(h('h3', {}, 'Desktop'),
-        sw('keepInTray', 'Keep running in the tray', 'Closing the window hides it; files then open instantly. Quit from the tray icon or File → Exit. Shared by all desktops; Linux needs libayatana-appindicator3-1.'),
+        sw('keepInTray', 'Keep running in the tray', 'Closing the window hides it; files then open instantly. Quit from the tray icon or File → Exit. Linux needs libayatana-appindicator3-1.'),
         h('p.muted', {}, be.platform === 'windows'
           ? `Open with: right-click a .txt or .md file → Open with → ${APP_NAME} (the installer registers it).`
           : 'From a terminal: mnemostxt file.txt, or add  alias m=mnemostxt  to ~/.bashrc and use  m file.txt.'));
@@ -230,6 +252,7 @@ export function showSettings(app, ui, first = 'appearance') {
         row('Lock after (minutes in background)', num('androidLockAfterMinutes', 0, 1440), '0 = every time you come back'),
         sw('androidSecure', 'Hide in Recents and block screenshots', 'The app switcher shows a blank card and the screen cannot be captured'),
         row('App permissions', h('button', { type: 'button', onclick: () => a.openAppSettings() }, 'Open app info')),
+        row('Launcher icon', seg('androidIcon', [['black', 'Black'], ['white', 'White']]), 'The icon on the home screen and in the app list. Some launchers take a few seconds to show the new one.'),
         h('p.muted', {}, `Widgets: long-press the home screen → Widgets → ${APP_NAME}. Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2) and Quick capture (4×1); long-press a widget (or tap its title) for its theme, opacity, text size, font and folder or note.`));
     }
     out.push(h('p.muted.set-foot', {}, `Settings: ${be.notesName}/${appDirOf(be)}/settings.json · ${APP_NAME} ${be.version}`));

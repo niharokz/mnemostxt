@@ -31,5 +31,7 @@ export function androidBridge() {
     takeOpenRequests: () => { try { return JSON.parse(n.takeOpenRequests() || '[]'); } catch { return []; } },
     onOpenRequest: (fn) => { window.__mnemostxtOpenPending = fn; },
     refreshWidgets: () => n.refreshWidgets?.(),
+    // "black" | "white": which launcher icon is shown (app/android/MainActivity.kt)
+    setIcon: n.setIcon ? (which) => n.setIcon(String(which)) : null,
   };
 }

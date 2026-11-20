@@ -100,6 +100,21 @@ Mouse: **Alt+drag** selects a column · **Ctrl+click** adds a cursor ·
 | Go to heading | `Ctrl+Shift+G` |
 | Open link under cursor | `Alt+Enter` |
 
+## Compare
+
+`Ctrl+Alt+C` opens Compare (as in Notepad++'s Compare plugin). In the Compare
+window:
+
+| Action | Keys |
+|---|---|
+| Next / previous difference | `Alt+Down` / `Alt+Up` (also `F8` / `Shift+F8`) |
+| Copy the difference to the right / left | `Alt+Right` / `Alt+Left` |
+| Save the side the cursor is in / both | `Ctrl+S` / `Ctrl+Shift+S` |
+| Recompare | `F5` |
+| Find in a side | `Ctrl+F` |
+| Undo / redo in a side | `Ctrl+Z` / `Ctrl+Y` |
+| Close | `Esc`, `Ctrl+W` |
+
 ## Settings and help
 
 | Action | Keys |

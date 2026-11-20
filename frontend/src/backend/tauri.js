@@ -43,6 +43,7 @@ export async function createTauriBackend() {
     appDir: info.app_dir,
     deviceName: info.device_name,
     startupFiles: info.args || [],
+    startupCompare: info.compare ? info.compare.map(norm) : null, // mnemostxt --diff left right
     canOpenAnywhere: !mobile, // desktop opens any file; Android stays in the notes folder
 
     async setNotesRoot(path) {
@@ -103,6 +104,7 @@ export async function createTauriBackend() {
       return r ? norm(r) : null;
     },
     onOpenFiles: (fn) => listen('open-files', (e) => fn((e.payload || []).map(norm))),
+    onOpenCompare: (fn) => listen('open-compare', (e) => fn((e.payload || []).map(norm))),
     onDropPaths: (fn) => getCurrentWebview().onDragDropEvent((e) => { if (e.payload.type === 'drop') fn(e.payload.paths.map(norm)); }),
     onCloseRequested: (fn) => getCurrentWindow().onCloseRequested(fn),
     onQuitRequested: (fn) => listen('quit-requested', () => fn()),

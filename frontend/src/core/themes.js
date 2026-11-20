@@ -207,12 +207,16 @@ const kebab = (s) => s.replace(/[A-Z0-9]+/g, (m) => '-' + m.toLowerCase());
 
 // Writes the theme into CSS variables on <html>. opacity < 1 makes the window
 // background see-through (desktop, with a compositor such as picom).
-export function applyTheme(root, theme, opacity = 1) {
+// opacity: the window background (desktop); panel: sidebar, tabs, menus and
+// status bar (0 = a little more solid than the window).
+export function applyTheme(root, theme, opacity = 1, panel = 0) {
   const set = (k, v) => root.style.setProperty(k, v);
   const a = Math.max(0.2, Math.min(1, Number(opacity) || 1));
+  const p = panel > 0 ? Math.max(0.2, Math.min(1, Number(panel))) : Math.min(1, a + 0.08);
   for (const k of COLOR_KEYS) {
     let v = theme[k];
-    if (a < 1 && (k === 'bg' || k === 'surface' || k === 'surface2')) v = rgba(v, k === 'bg' ? a : Math.min(1, a + 0.08));
+    if (k === 'bg' && a < 1) v = rgba(v, a);
+    else if ((k === 'surface' || k === 'surface2') && p < 1) v = rgba(v, p);
     if (UI_KEYS.has(k)) set(k === 'surface2' ? '--nss-surface-2' : k === 'accent2' ? '--nss-accent-2' : '--nss-' + kebab(k), v);
     else if (ED_KEYS.has(k)) set('--ed-' + kebab(k), v);
     else set('--syn-' + k, v);
@@ -225,7 +229,7 @@ export function applyTheme(root, theme, opacity = 1) {
   set('color-scheme', light ? 'light' : 'dark');
   root.dataset.theme = light ? 'light' : 'dark';
   root.dataset.themeId = theme.id;
-  root.classList.toggle('see-through', a < 1);
+  root.classList.toggle('see-through', a < 1 || p < 1);
 }
 
 // The colours shown in the editor for a custom theme: resolved, as #rrggbb where

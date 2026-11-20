@@ -1,4 +1,4 @@
-// The menu bar (File, Edit, Search, View, Notes, Encoding, Language, Settings, ?).
+// The menu bar (File, Edit, Search, View, Notes, Compare, Encoding, Language, Settings, ?).
 // It can collapse into one ≡ button (View → Collapse menu bar); a lone Alt
 // press opens it, like Notepad++. On phones the same menus open from ⋮ as a
 // drill-down list.
@@ -24,6 +24,7 @@ export function menuModel(app, ui) {
       'view.zoomIn', 'view.zoomOut', 'view.zoomReset', '-', 'view.foldAll', 'view.unfoldAll', 'view.fold', 'view.unfold', '-',
       { label: 'Theme', items: () => themeItems(app) }, 'view.opacity', 'view.zen', 'view.typewriter', 'view.fullscreen']),
     sub('Notes', ['note.daily', 'note.gotoFile', 'note.outline', '-', 'note.follow', 'note.backlinks', 'note.tag', '-', 'note.encrypt', 'note.decrypt', 'note.lock']),
+    ...(app.mobile ? [] : [sub('Compare', ['compare.files', 'compare.with', 'compare.saved', 'compare.clipboard'])]),
     { label: 'Encoding', items: () => encodingItems(app) },
     { label: 'Language', items: () => languageItems(app, ui) },
     sub('Settings', ['settings.open', 'settings.file', 'settings.notes', 'settings.trash']),

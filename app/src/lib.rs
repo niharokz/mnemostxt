@@ -7,6 +7,8 @@
 //! view that cannot send raw bytes, uses the base64 pair read_file / write_file.
 
 mod files;
+#[cfg(desktop)]
+mod folders;
 mod guard;
 mod search;
 mod session;
@@ -28,6 +30,8 @@ struct AppState {
     notes: Mutex<Option<PathBuf>>,
     boot: Mutex<session::Bootstrap>,
     startup: Vec<String>,
+    /// "mnemostxt --diff left right": the two files the Compare window opens with
+    compare: Option<Vec<String>>,
 }
 
 impl AppState {
@@ -50,6 +54,7 @@ struct Info {
     device_name: String,
     device_name_set: bool,
     args: Vec<String>,
+    compare: Option<Vec<String>>,
 }
 
 fn home(app: &AppHandle) -> Option<PathBuf> {
@@ -80,15 +85,23 @@ fn checked(app: &AppHandle, s: &str, access: guard::Access) -> Res<PathBuf> {
 
 /// Files and folders named on the command line ("mnemostxt notes.md ~/notes").
 fn cli_paths(args: &[String], cwd: &Path) -> Vec<String> {
-    args.iter()
-        .skip(1)
-        .filter(|a| !a.starts_with('-'))
-        .map(|a| {
-            let pb = PathBuf::from(a);
-            let abs = if pb.is_absolute() { pb } else { cwd.join(pb) };
-            show(&util::canonical_or_self(&abs))
-        })
-        .collect()
+    args.iter().skip(1).filter(|a| !a.starts_with('-')).map(|a| abs_arg(a, cwd)).collect()
+}
+
+fn abs_arg(a: &str, cwd: &Path) -> String {
+    let pb = PathBuf::from(a);
+    let abs = if pb.is_absolute() { pb } else { cwd.join(pb) };
+    show(&util::canonical_or_self(&abs))
+}
+
+/// "mnemostxt --diff left right": both paths, absolute.
+#[cfg(desktop)]
+fn cli_compare(args: &[String], cwd: &Path) -> Option<Vec<String>> {
+    folders::compare_args(args).map(|(a, b)| vec![abs_arg(&a, cwd), abs_arg(&b, cwd)])
+}
+#[cfg(not(desktop))]
+fn cli_compare(_args: &[String], _cwd: &Path) -> Option<Vec<String>> {
+    None
 }
 
 /// A request header as text ("x-path" arrives URL-encoded).
@@ -117,6 +130,7 @@ async fn app_info(app: AppHandle, state: State<'_, AppState>) -> Res<Info> {
         device_name_set: boot.device_name.is_some(),
         device_name: boot.device_name.unwrap_or_else(util::host_name),
         args: state.startup.clone(),
+        compare: state.compare.clone(),
     })
 }
 
@@ -304,7 +318,12 @@ async fn app_exit(app: AppHandle) -> Res<()> {
 pub fn run() {
     let args: Vec<String> = std::env::args().collect();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let startup = if cfg!(mobile) { vec![] } else { cli_paths(&args, &cwd) };
+    let compare = cli_compare(&args, &cwd);
+    let startup = if cfg!(mobile) || compare.is_some() { vec![] } else { cli_paths(&args, &cwd) };
+    let context = tauri::generate_context!();
+    // 0.1.0: the app's folders are named mnemostxt on Linux and Windows; move the old ones first
+    #[cfg(desktop)]
+    folders::move_old(&context.config().identifier);
 
     #[allow(unused_mut)] // only the desktop build adds plugins below
     let mut builder = tauri::Builder::default();
@@ -315,8 +334,12 @@ pub fn run() {
         // running window, which also comes back from the tray
         builder = builder
             .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-                let paths = cli_paths(&argv, Path::new(&cwd));
                 tray::show_main(app);
+                if let Some(pair) = cli_compare(&argv, Path::new(&cwd)) {
+                    let _ = app.emit_to("main", "open-compare", pair);
+                    return;
+                }
+                let paths = cli_paths(&argv, Path::new(&cwd));
                 if !paths.is_empty() {
                     let _ = app.emit_to("main", "open-files", paths);
                 }
@@ -330,7 +353,7 @@ pub fn run() {
         .setup(move |app| {
             let boot = config_dir(app.handle()).map(|c| session::load_bootstrap(&c)).unwrap_or_default();
             let notes = boot.notes_dir.clone().map(PathBuf::from).filter(|p| p.is_dir());
-            app.manage(AppState { notes: Mutex::new(notes), boot: Mutex::new(boot), startup: startup.clone() });
+            app.manage(AppState { notes: Mutex::new(notes), boot: Mutex::new(boot), startup: startup.clone(), compare: compare.clone() });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -359,7 +382,7 @@ pub fn run() {
             tray_set,
             app_exit
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running mnemostxt");
 }
 
@@ -373,5 +396,13 @@ mod tests {
         std::fs::write(d.path().join("a.md"), "").unwrap();
         let got = cli_paths(&["mnemostxt".into(), "--flag".into(), "a.md".into()], d.path());
         assert_eq!(got, vec![show(&dunce::canonicalize(d.path().join("a.md")).unwrap())]);
+    }
+
+    #[test]
+    fn desktop_identifier_is_the_short_name() {
+        // tauri.linux.conf.json / tauri.windows.conf.json: ~/.config/mnemostxt, not ~/.config/ar.nih.mnemostxt
+        let ctx: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        let want = if cfg!(any(target_os = "linux", windows)) { "mnemostxt" } else { "ar.nih.mnemostxt" };
+        assert_eq!(ctx.config().identifier, want);
     }
 }

@@ -4,6 +4,7 @@
 import { basename, dirname, isInside, join } from '../core/paths.js';
 import { contextMenu, toast } from './dialogs.js';
 import { h, icon } from './dom.js';
+import { openCompare } from './compareView.js';
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 const isConflictCopy = (name) => /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]+/.test(name);
@@ -210,6 +211,12 @@ export class Tree {
       '-',
     ];
     if (!entry.dir) items.push({ label: 'Open', run: () => app.open(path) }, { label: 'Open in background', run: () => app.open(path, { focus: false }) }, '-');
+    if (!entry.dir && !app.mobile) {
+      // Compare: pick one file, then compare another one with it
+      const left = app.compareLeft;
+      if (left && left !== path) items.push({ label: `Compare with ${basename(left)}`, run: () => openCompare(app, { left: { path: left }, right: { path } }) });
+      items.push({ label: 'Select for compare', run: () => { app.compareLeft = path; toast(`${basename(path)} selected. Right-click another file → Compare with ${basename(path)}`, { ms: 4000 }); } }, '-');
+    }
     if (!root) {
       items.push({ label: 'Rename…', run: () => app.renamePath(path) });
       items.push({ label: 'Move to trash', danger: true, run: () => app.trashPath(path) });

@@ -1,6 +1,7 @@
 // mnemostxt — start-up: pick the backend, sign in (web), choose the notes folder
 // (first run), load the shared settings, restore the last session, build the UI.
 // Kept short on purpose: the window shows the restored tabs as soon as possible.
+import { openCompare } from './ui/compareView.js';
 import '@fontsource/jetbrains-mono/latin-400.css';
 import '@fontsource/jetbrains-mono/latin-700.css';
 import './styles/nss-app.css';
@@ -71,6 +72,10 @@ async function start() {
   await shell.tree.renderAll();
   await app.restore();
   if (backend.startupFiles?.length) await shell.openPaths(backend.startupFiles);
+  // mnemostxt --diff left right (also from a second launch, e.g. git difftool)
+  const compare = ([a, b] = []) => { if (a && b) openCompare(app, { left: { path: a }, right: { path: b } }); };
+  backend.onOpenCompare?.(compare);
+  if (backend.startupCompare) compare(backend.startupCompare);
   await handleLaunchParams(app);
   if (!app.docs.length) app.emit('active', null);
   document.body.classList.add('ready');

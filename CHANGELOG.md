@@ -9,6 +9,43 @@ turns that section into the new version, and the release page on GitLab shows it
 
 ## [Unreleased]
 
+### Added
+
+- **Compare** (desktop and web): two texts side by side, Beyond Compare
+  style. Lines line up, changed lines are tinted and the changed words marked;
+  both sides can be edited, with undo. Next / previous difference (Alt+Down,
+  Alt+Up), copy a difference to the other side (Alt+Right, Alt+Left), copy all,
+  save each side (Ctrl+S saves the side the cursor is in; a tab side saves
+  through its tab, with history), swap sides, an overview bar with every
+  difference. Rules: ignore case, trailing / leading and trailing / all
+  whitespace, blank lines. Show all lines or only the differences with 0–10
+  lines around them. Copy or save the result as a patch (unified diff, the
+  same as `diff -u`). The options are remembered.
+  Open it from the Compare menu (Ctrl+Alt+C: two files), a tab's menu
+  (Compare with…, Compare with saved version), the sidebar (Select for
+  compare, then Compare with …), Compare with clipboard, or a terminal:
+  `mnemostxt --diff left right` (also as a git difftool).
+- Settings per platform: `settings.json` → `"platforms"` overrides values on
+  Linux, Windows, Android or the web app. Every row in Preferences has a pin,
+  "All devices" or "Linux only". Window opacity, panel opacity, the font, the
+  tray and the Android icon are always per platform.
+- Panel opacity (desktop): sidebar, tabs, menus and status bar can be as
+  see-through as the window, for picom and other compositors (Preferences →
+  Appearance; the hint shows the picom blur lines).
+- Android: the launcher icon in black or white (Preferences → This device →
+  Launcher icon).
+
+### Changed
+
+- Linux and Windows keep the app's own files in folders named `mnemostxt`
+  (`~/.config/mnemostxt`, `~/.local/share/mnemostxt`, `~/.cache/mnemostxt`,
+  `%APPDATA%\mnemostxt`, `%LOCALAPPDATA%\mnemostxt`) instead of
+  `ar.nih.mnemostxt`. The old folders are moved once at the first start of
+  0.1.0 (copied when a move is not possible; nothing is overwritten). Android
+  keeps its package name.
+- After this update Android shows the app's icon through a new launcher entry:
+  a home-screen shortcut to it may need to be placed again, once.
+
 ## [0.0.9] - 2026-11-19
 
 ### Fixed

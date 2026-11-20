@@ -14,6 +14,8 @@ git. This script creates it when missing and applies mnemostxt's changes:
       in app/android/res/ (layouts, widget infos, background), and their
       receivers, list service, settings and capture activities in the manifest
   2e. the name people see: MnemoTXT (strings.xml, share label)
+  2f. the launcher icon, black or white (0.1.0): two activity aliases replace
+      MainActivity's launcher entry; Preferences switches between them
   2b. the Gradle task that calls back into the Tauri CLI: point it at the real
       CLI file (started as `node <file>`, Tauri records just "tauri")
   3. the launcher icons from app/icons/android
@@ -230,6 +232,60 @@ def widgets():
         print("android-prepare: widgets added to the manifest")
 
 
+ICONS_MARK = "mnemostxt-icons-v1"
+ICON_ALIASES = f"""
+        <!-- {ICONS_MARK}: the launcher icon, black or white (MainActivity.switchIcon) -->
+        <activity-alias
+            android:name=".IconBlack"
+            android:targetActivity=".MainActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IconWhite"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_white"
+            android:roundIcon="@mipmap/ic_launcher_white"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+"""
+
+
+def launcher_icons():
+    """MainActivity loses its own launcher entry; IconBlack (on) and IconWhite (off) give it one."""
+    p = GEN / "app" / "src" / "main" / "AndroidManifest.xml"
+    s = p.read_text()
+    if ICONS_MARK in s:
+        return
+    m = re.search(r'<activity\b[^>]*android:name="\.MainActivity"[^>]*>(.*?)</activity>', s, flags=re.S)
+    if not m:
+        die(f"no MainActivity in {p}")
+    body = m.group(1)
+    launcher = re.compile(r"\s*<intent-filter[^>]*>(?:(?!</intent-filter>).)*?android\.intent\.category\.LAUNCHER(?:(?!</intent-filter>).)*?</intent-filter>", re.S)
+    body2, n = launcher.subn("", body, count=1)
+    if not n:
+        die("MainActivity has no launcher intent-filter to move")
+    s = s[: m.start(1)] + body2 + s[m.end(1):]
+    s, n = re.subn(r"(\n\s*</application>)", lambda mm: ICON_ALIASES.rstrip("\n") + mm.group(1), s, count=1)
+    if not n:
+        die(f"no </application> in {p}")
+    p.write_text(s)
+    print("android-prepare: launcher icons black/white (activity aliases)")
+
+
 APP_NAME = "MnemoTXT"  # the name people see (frontend/src/core/brand.js)
 
 
@@ -396,6 +452,7 @@ if __name__ == "__main__":
     widgets()
     no_backup()
     app_name()
+    launcher_icons()
     check_manifest()
     activity()
     resources()

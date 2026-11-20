@@ -15,6 +15,7 @@ import { dialogOpen } from './dialogs.js';
 import { canView } from './reader.js';
 import { APP_NAME } from '../core/brand.js';
 import { isMarkdown } from '../core/languages.js';
+import { compareFiles, compareWith, compareWithClipboard, compareWithSaved } from './compareView.js';
 
 export function buildCommands(app, ui) {
   const v = () => app.view;
@@ -126,6 +127,11 @@ export function buildCommands(app, ui) {
     // Notes: links, daily note, encryption
     { id: 'note.daily', label: "Today's note", keys: ['Alt+D'], scope: 'app', run: () => app.dailyNote(), when: () => app.backend.notesRoot != null },
     { id: 'note.gotoFile', label: 'Go to file…', keys: ['Ctrl+Shift+O'], scope: 'app', run: () => ui.gotoFile(), when: () => app.backend.notesRoot != null },
+    // Compare (desktop and web)
+    { id: 'compare.files', label: 'Compare files…', keys: ['Ctrl+Alt+C'], scope: 'app', run: () => compareFiles(app), when: () => !app.mobile },
+    { id: 'compare.with', label: 'Compare this file with…', keys: [], scope: 'app', run: () => compareWith(app), when: () => !app.mobile && app.active?.kind === 'text' },
+    { id: 'compare.saved', label: 'Compare with saved version', keys: [], scope: 'app', run: () => compareWithSaved(app), when: () => !app.mobile && app.active?.kind === 'text' && !!app.active.path },
+    { id: 'compare.clipboard', label: 'Compare with clipboard', keys: [], scope: 'app', run: () => compareWithClipboard(app), when: () => !app.mobile && app.active?.kind === 'text' },
     { id: 'note.outline', label: 'Go to heading…', keys: ['Ctrl+Shift+G'], scope: 'app', run: () => ui.gotoHeading(), when: () => app.active?.kind === 'text' },
     { id: 'note.follow', label: 'Open link under cursor', keys: ['Alt+Enter'], run: () => app.followLink() },
     { id: 'note.backlinks', label: 'Notes that link here', keys: [], scope: 'app', run: () => app.backlinks(), when: () => !!app.active?.path },
@@ -164,8 +170,11 @@ export function installKeys(commands, app) {
     if (!combo) return;
     const c = byKey.get(combo);
     if (!c || (c.when && !c.when())) return;
-    if (dialogOpen() && c.scope === 'app' && !['file.save'].includes(c.id)) return;
     const t = e.target;
+    // the Compare window has its own keys (Ctrl+S saves a side there); none of
+    // the app's may act on the tab hidden behind it
+    if (t instanceof Element && t.closest('dialog.compare')) return;
+    if (dialogOpen() && c.scope === 'app' && !['file.save'].includes(c.id)) return;
     const inField = t instanceof HTMLElement && (t.matches('input, textarea, select') || (t.isContentEditable && !t.closest('.cm-content')));
     if (c.scope === 'editor') {
       if (app.active?.kind !== 'text') return;

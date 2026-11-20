@@ -11,6 +11,8 @@ package ar.nih.mnemostxt
 //    the permission screens, and the settings ShareActivity needs.
 //  - Opens the file a widget was tapped on (Widgets.kt): the request waits in a
 //    queue until the page takes it (MnemostxtAndroid.takeOpenRequests).
+//  - Switches the launcher icon between black and white (Preferences →
+//    This device → Launcher icon): two activity aliases, one enabled.
 //  - Locks with the phone's own lock (fingerprint, face, PIN, pattern) when
 //    Preferences → This device → Lock is on: at start, and after the app was
 //    in the background for the chosen number of minutes. mnemostxt stores no
@@ -276,6 +278,10 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun refreshWidgets() = Widgets.updateAll(this@MainActivity)
 
+    /** The launcher icon: "black" or "white" (activity aliases added by scripts/android-prepare.py). */
+    @JavascriptInterface
+    fun setIcon(which: String) = runOnUiThread { switchIcon(which == "white") }
+
     /** Notes folder, inbox and lock settings, kept for ShareActivity and for locking before the page loads. */
     @JavascriptInterface
     fun configure(json: String) {
@@ -289,6 +295,28 @@ class MainActivity : TauriActivity() {
         .putBoolean("secure", o.optBoolean("secure", false))
         .apply()
       runOnUiThread { applySecure() }
+    }
+  }
+
+  /**
+   * Shows one launcher entry, IconBlack or IconWhite (both open this activity).
+   * Only changes what differs, so starting the app never makes the launcher
+   * redraw. Missing aliases (an older generated project) are ignored.
+   */
+  private fun switchIcon(white: Boolean) {
+    val pm = packageManager
+    val want = mapOf("IconBlack" to !white, "IconWhite" to white)
+    for ((alias, on) in want) {
+      val c = android.content.ComponentName(packageName, "$packageName.$alias")
+      val state = if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+      try {
+        val now = pm.getComponentEnabledSetting(c)
+        val isOn = now == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+          (now == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT && alias == "IconBlack")
+        if (isOn != on) pm.setComponentEnabledSetting(c, state, PackageManager.DONT_KILL_APP)
+      } catch (e: Exception) {
+        // no such alias in this build
+      }
     }
   }
 

@@ -55,20 +55,33 @@
   changed by another program or device is never overwritten silently;
   Syncthing conflict copies are flagged and compared side by side
   (*Keep mine* / *Use theirs*).
+- **Compare** (desktop and web; Compare menu, Ctrl+Alt+C): two files, a tab
+  and its saved version, a tab and the clipboard, or two files picked in the
+  sidebar, side by side like Beyond Compare. Lines line up, changed words are
+  marked, both sides can be edited; Alt+↑↓ jumps between differences,
+  Alt+←→ copies one across, Ctrl+S saves the side you are in. Rules ignore
+  case, whitespace or blank lines; show only the differences; save the result
+  as a patch. From a terminal or git: `mnemostxt --diff left right`.
 - **Find in files with Replace all**, CSV cells edited in the table View,
   focus mode (Ctrl+Alt+Z), typewriter scrolling, spell check, word count,
   export a markdown note as one HTML file, print the rendered note (PDF).
 - **One setting.** Everything lives in the notes folder's app folder
   (default `logs/mnemostxt/`: `settings.json`, trash, scratch, each device's
   open tabs), so the desktop, phone and web app look and behave the same.
-  Nothing is written at the top of your notes folder.
-- **Desktop**: optional tray (files open instantly), see-through background
-  for picom and other compositors.
+  Nothing is written at the top of your notes folder. A setting can still
+  differ per platform: pin it to "Linux only" (or Windows, Android, web) in
+  Preferences; opacity, font, tray and the Android icon always are.
+- **Desktop**: optional tray (files open instantly), see-through window and
+  panels for picom and other compositors. Its own folders are named
+  `mnemostxt`: `~/.config/mnemostxt`, `~/.local/share/mnemostxt` on Linux,
+  `%APPDATA%\mnemostxt` on Windows (moved there from `ar.nih.mnemostxt` by
+  0.1.0).
 - **Android**: system folder picker, fingerprint/face/screen-lock lock,
   "Share to mnemostxt" into your inbox folder, and home-screen widgets:
   Recent files (2×2, 3×2, 4×2), Pinned note (2×2, 4×2), Quick capture (4×1),
-  each with its own theme, opacity, text size and font, and an option to hide
-  the app in Recents and block screenshots.
+  each with its own theme, opacity, text size and font, an option to hide
+  the app in Recents and block screenshots, and a black or white launcher
+  icon.
 
 ## Web app
 

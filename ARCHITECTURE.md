@@ -37,8 +37,16 @@ it along; nothing is written at the top of the notes folder.
 ```
 
 Per device, outside the notes folder: the notes folder path, the device name
-and the app folder (`bootstrap.json` in the app's config folder). The web app
-keeps session and backups in the browser, per account.
+and the app folder (`bootstrap.json` in the app's config folder:
+`~/.config/mnemostxt` on Linux, `%APPDATA%\mnemostxt` on Windows, the app's
+private storage on Android). The web app keeps session and backups in the
+browser, per account.
+
+`settings.json` is shared, with one exception: `"platforms": { "linux": { … },
+"windows": { … }, "android": { … }, "web": { … } }` overrides values on one
+platform (`core/settings.js`: `effective()`). Window and panel opacity, the
+font, the tray and the Android icon always go there; any other setting does
+once it is pinned in Preferences. Older versions ignore the section.
 
 ## Frontend (`frontend/src`)
 
@@ -63,7 +71,9 @@ keeps session and backups in the browser, per account.
 | `core/wiki.js` | `[[links]]`, `#tags`, headings, fuzzy match, word count, dates (pure, unit-tested) |
 | `core/fileindex.js` | every file of the notes folder, for Go to file and links (built when first needed, dropped on change) |
 | `core/crypto.js` | encrypted notes: `mnemostxt-enc:v1` files, AES-256-GCM, PBKDF2 (WebCrypto) |
-| `core/diff.js` | line diff (Myers) for sync conflicts and history |
+| `core/diff.js` | line diff (Myers) for sync conflicts, history and Compare (`diffIndices`) |
+| `core/compare.js` | Compare without the screen: rules (case, whitespace, blank lines), the diff the view draws under rules, copying a difference across, the summary, unified diff (byte-identical to `diff -u`) |
+| `ui/compareView.js` | the Compare window: `@codemirror/merge` side by side, both sides editable, navigation, copy, save per side (a tab side saves through its tab), rules, differences only, patch export, the overview bar |
 | `editor/wikilinks.js` | completion after `[[` |
 | `ui/picker.js`, `ui/diffView.js` | the quick-pick list (Go to file, headings, history) and the compare sheet |
 | `ui/settingsSheet.js` | Preferences in sections, the theme colour editor, the key editor, per-device settings |
@@ -118,6 +128,7 @@ Tauri 2. `src/lib.rs` registers async commands (they run off the UI thread):
 | `files.rs` | list, read, write (atomic + conflict check), stat, create, rename, remove (app folder only), trash, purge |
 | `search.rs` | find in files (skips the app folder, hidden names, binary files, files over 4 MB, symlinked folders) |
 | `session.rs` | `bootstrap.json` (notes folder, app folder, device name); 0.0.1's session and backups |
+| `folders.rs` | desktop: moves `ar.nih.mnemostxt` folders to `mnemostxt` once (0.1.0); `--diff left right` |
 | `tray.rs` | the optional tray icon (desktop) |
 | `util.rs` | error codes, path normalising, "is inside" checks, URL decoding, device names |
 | `guard.rs` | the deny-list every file command passes: credential stores never, system folders read-only |
@@ -127,8 +138,16 @@ modification time, then the file) and `write_raw` takes the file as the raw
 request body (path and expected time in headers) — no base64, no JSON. Android
 and any web view that cannot do this use `read_file` / `write_file` (base64).
 
+Desktop app folders: `tauri.linux.conf.json` and `tauri.windows.conf.json` set
+the identifier to `mnemostxt`, so Tauri and the web view keep their files in
+`~/.config/mnemostxt`, `~/.local/share/mnemostxt`, `~/.cache/mnemostxt`
+(`%APPDATA%\mnemostxt`, `%LOCALAPPDATA%\mnemostxt`). Android keeps
+`ar.nih.mnemostxt`, its package name: changing it would make a new app. Before
+the window opens, `folders.rs` renames the old folders once (copies when a
+rename is not possible; never overwrites).
+
 Desktop extras: single instance (a second launch passes its files to the open
-window, also from the tray), window size/position remembered, an optional tray
+window, also from the tray; `--diff a b` opens Compare), window size/position remembered, an optional tray
 (closing then only hides the window), a transparent window for the opacity
 setting, `.deb` desktop entry with `%F` and `/usr/bin/m` (`m file.txt`),
 Windows installer adds "Open with mnemostxt" for every file and folder
@@ -146,6 +165,10 @@ bridge, icons, release signing. It is not committed.
 - **Share**: `ShareActivity` writes into `<notes>/<androidInbox>` (text as
   `<date>_<time>.md`, files under their names) using the folder the app last
   told it (`configure`), and closes. `Inbox.kt` holds that logic for everyone.
+- **Launcher icon** (`androidIcon`, black or white): `android-prepare.py`
+  moves the launcher entry from `MainActivity` to two activity aliases,
+  `IconBlack` (on by default) and `IconWhite` (`mipmap/ic_launcher_white`);
+  `MainActivity.switchIcon` turns one on and the other off.
 - **Privacy**: `android-prepare.py` turns Android backup off and adds data
   extraction rules (`res/xml/mnemostxt_backup_*.xml`); `androidSecure` sets
   `FLAG_SECURE`. Share takes only other apps' `content://` links;

@@ -2,6 +2,7 @@
 // closes, drag reorders, right-click has the Notepad++ tab menu.
 import { contextMenu, toast } from './dialogs.js';
 import { h, icon } from './dom.js';
+import { compareWith, compareWithSaved } from './compareView.js';
 
 export class Tabs {
   constructor(app) {
@@ -52,6 +53,11 @@ export class Tabs {
       { label: 'Rename…', disabled: !d.path, run: () => app.renamePath(d.path) },
       { label: 'Reload from disk', disabled: !d.path, run: () => app.reload(d) },
       '-',
+      ...(app.mobile || d.kind !== 'text' ? [] : [
+        { label: 'Compare with…', run: () => compareWith(app, d) },
+        { label: 'Compare with saved version', disabled: !d.path, run: () => compareWithSaved(app, d) },
+        '-',
+      ]),
       { label: 'Copy path', disabled: !d.path, run: () => navigator.clipboard?.writeText(d.path).then(() => toast('Path copied'), () => {}) },
       { label: 'Reveal in sidebar', disabled: !d.path, run: () => app.emit('reveal', d.path) },
     ]);
